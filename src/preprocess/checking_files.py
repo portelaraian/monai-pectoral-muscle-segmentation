@@ -35,7 +35,7 @@ def comparisons(mris, masks):
     print(f"[Comparisons]: Total {len(masks)} masks\n")
 
     # One by one
-    mris = [mri.split("/")[-1].split(".")[0] for mri in mris]
+    mris  = [mri.split("/")[-1].split(".")[0] for mri in mris]
     masks = [mask.split("/")[-1].split(".")[0] for mask in masks]
 
     missing_masks = [mask for mask in masks if mask not in mris]
@@ -97,7 +97,7 @@ def main(args):
             print("[Segregate files]: Moved files successfully...")
         else:
             print("[Segregate files]: An error occured...")
- 
+
 if __name__ == "__main__":
     args = get_args()
     
