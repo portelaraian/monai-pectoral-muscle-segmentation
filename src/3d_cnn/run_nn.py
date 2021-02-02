@@ -56,7 +56,7 @@ def get_xforms(mode="train", keys=("image", "label")):
     if mode == "train":
         xforms.extend(
             [
-                SpatialPadd(keys, spatial_size=(192, 192, -1), mode="reflect"),  # ensure at least 192x192
+                SpatialPadd(keys, spatial_size=(320, 320, -1), mode="reflect"),  # ensure at least 192x192
                 RandAffined(
                     keys,
                     prob=0.15,
@@ -65,7 +65,7 @@ def get_xforms(mode="train", keys=("image", "label")):
                     mode=("bilinear", "nearest"),
                     as_tensor_output=False,
                 ),
-                RandCropByPosNegLabeld(keys, label_key=keys[1], spatial_size=(192, 192, 16), num_samples=3),
+                RandCropByPosNegLabeld(keys, label_key=keys[1], spatial_size=(320, 320, 16), num_samples=3),
                 RandGaussianNoised(keys[0], prob=0.15, std=0.01),
                 RandFlipd(keys, spatial_axis=0, prob=0.5),
                 RandFlipd(keys, spatial_axis=1, prob=0.5),
@@ -84,6 +84,7 @@ def get_net():
     """returns a unet model instance."""
 
     n_classes = 2
+    '''
     net = monai.networks.nets.BasicUNet(
         dimensions=3,
         in_channels=1,
@@ -91,12 +92,24 @@ def get_net():
         features=(32, 32, 64, 128, 256, 32),
         dropout=0.1,
     )
+    '''
+
+    model = monai.networks.nets.UNet(
+        dimensions=3,
+        in_channels=1,
+        out_channels=n_classes,
+        channels=(16, 32, 64, 128, 256),
+        strides=(2, 2, 2, 2),
+        num_res_units=2,
+        norm=Norm.BATCH,
+    ).to(device)
+
     return net
 
 def get_inferer(_mode=None):
     """returns a sliding window inference instance."""
 
-    patch_size = (192, 192, 16)
+    patch_size = (320, 320, 16)
     sw_batch_size, overlap = 2, 0.5
     inferer = monai.inferers.SlidingWindowInferer(
         roi_size=patch_size,
