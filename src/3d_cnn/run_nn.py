@@ -97,7 +97,7 @@ def get_net():
     model = monai.networks.nets.UNet(
         dimensions=3,
         in_channels=1,
-        out_channels=n_classes,
+        out_channels=n_classes, # 2
         channels=(16, 32, 64, 128, 256),
         strides=(2, 2, 2, 2),
         num_res_units=2,
@@ -146,7 +146,7 @@ def train(data_folder="../../input", model_folder="runs"):
         train_ds,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=2,
+        num_workers=4,
         pin_memory=torch.cuda.is_available(),
     )
 
@@ -156,7 +156,7 @@ def train(data_folder="../../input", model_folder="runs"):
     val_loader = monai.data.DataLoader(
         val_ds,
         batch_size=1,  # image-level batch to the sliding window method, not the window-level batch
-        num_workers=2,
+        num_workers=4,
         pin_memory=torch.cuda.is_available(),
     )
 
