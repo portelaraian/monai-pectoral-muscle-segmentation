@@ -2,6 +2,7 @@
 /cache*
 /model*
 /runs*
+/notebooks*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -9,8 +9,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 from ignite.contrib.handlers import ProgressBar
+from ignite.contrib.handlers.param_scheduler import CosineAnnealingScheduler
 
 import monai
+from monai.metrics import DiceMetric
 from monai.handlers import CheckpointSaver, MeanDice, StatsHandler, ValidationHandler
 from monai.transforms import (
     AddChanneld,
@@ -26,6 +28,7 @@ from monai.transforms import (
     Spacingd,
     SpatialPadd,
     ToTensord,
+    ScaleIntensityd,
 )
 
 class DiceCELoss(nn.Module):
@@ -33,7 +36,7 @@ class DiceCELoss(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.dice = monai.losses.DiceLoss(to_onehot_y=True, softmax=True)
+        self.dice = monai.losses.DiceLoss(include_background=False, to_onehot_y=True, softmax=True)
         self.cross_entropy = nn.CrossEntropyLoss()
 
     def forward(self, y_pred, y_true):
@@ -51,21 +54,22 @@ def get_xforms(mode="train", keys=("image", "label")):
         AddChanneld(keys),
         Orientationd(keys, axcodes="LPS"),
         Spacingd(keys, pixdim=(1.25, 1.25, 5.0), mode=("bilinear", "nearest")[: len(keys)]),
-        ScaleIntensityRanged(keys[0], a_min=-1000.0, a_max=500.0, b_min=0.0, b_max=1.0, clip=True),
+        ScaleIntensityd(keys, minv=0.0, maxv=1.0),
+        # ScaleIntensityRanged(keys[0], a_min=-1000.0, a_max=500.0, b_min=0.0, b_max=1.0, clip=True),
     ]
     if mode == "train":
         xforms.extend(
             [
-                SpatialPadd(keys, spatial_size=(320, 320, -1), mode="reflect"),  # ensure at least 192x192
+                SpatialPadd(keys, spatial_size=(192, 192, -1), mode="reflect"),  # ensure at least 192x192
                 RandAffined(
                     keys,
-                    prob=0.15,
-                    rotate_range=(0.05, 0.05, None),  # 3 parameters control the transform on 3 dimensions
-                    scale_range=(0.1, 0.1, None), 
+                    prob=0.25,
+                    rotate_range=(0.1, 0.1, None),  # 3 parameters control the transform on 3 dimensions
+                    scale_range=(0.2, 0.2, None), 
                     mode=("bilinear", "nearest"),
                     as_tensor_output=False,
                 ),
-                RandCropByPosNegLabeld(keys, label_key=keys[1], spatial_size=(320, 320, 16), num_samples=3),
+                RandCropByPosNegLabeld(keys, label_key=keys[1], spatial_size=(192, 192, 16), num_samples=3),
                 RandGaussianNoised(keys[0], prob=0.15, std=0.01),
                 RandFlipd(keys, spatial_axis=0, prob=0.5),
                 RandFlipd(keys, spatial_axis=1, prob=0.5),
@@ -84,7 +88,6 @@ def get_net():
     """returns a unet model instance."""
 
     n_classes = 2
-    '''
     net = monai.networks.nets.BasicUNet(
         dimensions=3,
         in_channels=1,
@@ -92,9 +95,9 @@ def get_net():
         features=(32, 32, 64, 128, 256, 32),
         dropout=0.1,
     )
+    
     '''
-
-    model = monai.networks.nets.UNet(
+    net = monai.networks.nets.UNet(
         dimensions=3,
         in_channels=1,
         out_channels=n_classes, # 2
@@ -102,14 +105,14 @@ def get_net():
         strides=(2, 2, 2, 2),
         num_res_units=2,
         norm=Norm.BATCH,
-    ).to(device)
-
+    )
+    '''
     return net
 
 def get_inferer(_mode=None):
     """returns a sliding window inference instance."""
 
-    patch_size = (320, 320, 16)
+    patch_size = (192, 192, 16)
     sw_batch_size, overlap = 2, 0.5
     inferer = monai.inferers.SlidingWindowInferer(
         roi_size=patch_size,
@@ -120,7 +123,7 @@ def get_inferer(_mode=None):
     )
     return inferer
 
-def train(data_folder="../../input", model_folder="runs"):
+def train(data_folder="../../input/train/v3", model_folder="../../runs"):
     """run a training pipeline."""
 
     images = sorted(glob.glob(os.path.join(data_folder, "mri/*.nii.gz")))
@@ -140,8 +143,10 @@ def train(data_folder="../../input", model_folder="runs"):
     # create a training data loader
     batch_size = 2
     logging.info(f"batch size {batch_size}")
+    
     train_transforms = get_xforms("train", keys)
-    train_ds = monai.data.CacheDataset(data=train_files, transform=train_transforms)
+    train_ds         = monai.data.CacheDataset(data=train_files, transform=train_transforms)
+    
     train_loader = monai.data.DataLoader(
         train_ds,
         batch_size=batch_size,
@@ -163,7 +168,7 @@ def train(data_folder="../../input", model_folder="runs"):
     # create BasicUNet, DiceLoss and Adam optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     net = get_net().to(device)
-    max_epochs, lr, momentum = 600, 1e-4, 0.95
+    max_epochs, lr, momentum = 400, 1e-5, 0.95
     logging.info(f"epochs {max_epochs}, lr {lr}, momentum {momentum}")
     opt = torch.optim.Adam(net.parameters(), lr=lr)
 
@@ -191,8 +196,12 @@ def train(data_folder="../../input", model_folder="runs"):
     # evaluator as an event handler of the trainer
     train_handlers = [
         ValidationHandler(validator=evaluator, interval=1, epoch_level=True),
-        StatsHandler(tag_name="train_loss", output_transform=lambda x: x["loss"]),
+        StatsHandler(tag_name="train_loss", output_transform=lambda x: x["loss"])
     ]
+    
+    scheduler = CosineAnnealingScheduler(opt, 'lr', 1e-5, 1e-3, len(train_loader))
+    trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
+
     trainer = monai.engines.SupervisedTrainer(
         device=device,
         max_epochs=max_epochs,
@@ -224,7 +233,7 @@ def infer(data_folder="../..", model_folder="runs", prediction_folder="output"):
     net.eval()
 
     image_folder = os.path.abspath(data_folder)
-    images = sorted(glob.glob(os.path.join(image_folder, "*_ct.nii.gz")))
+    images = sorted(glob.glob(os.path.join(image_folder, "*.nii.gz")))
     logging.info(f"infer: image ({len(images)}) folder: {data_folder}")
     infer_files = [{"image": img} for img in images]
 
@@ -274,6 +283,7 @@ def infer(data_folder="../..", model_folder="runs", prediction_folder="output"):
     logging.info(f"predictions copied to {submission_dir}.")
 
 if __name__ == "__main__":
+    torch.backends.cudnn.benchmark = True
 
     parser = argparse.ArgumentParser(description="Run a basic UNet segmentation baseline.")
     parser.add_argument(
@@ -288,10 +298,10 @@ if __name__ == "__main__":
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
     if args.mode == "train":
-        data_folder = args.data_folder or "../../input"
+        data_folder = args.data_folder or "../../input/train/v3"
         train(data_folder=data_folder, model_folder=args.model_folder)
     elif args.mode == "infer":
-        data_folder = args.data_folder or os.path.join("COVID-19-20_v2", "Validation")
+        data_folder = args.data_folder or "../../input/validation"
         infer(data_folder=data_folder, model_folder=args.model_folder)
     else:
         raise ValueError("Unknown mode.")
