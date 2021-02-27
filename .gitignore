@@ -3,6 +3,7 @@
 /model*
 /runs*
 /notebooks*
+/MONAI*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

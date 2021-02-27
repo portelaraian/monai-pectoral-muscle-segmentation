@@ -46,7 +46,7 @@ def get_args():
     return parser.parse_args()
 
 
-def train(data_folder="./input/train/v3", model_folder="./runs"):
+def train(data_folder="./input/train", model_folder="./runs"):
     """run a training pipeline."""
 
     images = sorted(glob.glob(os.path.join(data_folder, "mri/*.nii.gz")))
@@ -148,7 +148,7 @@ def train(data_folder="./input/train/v3", model_folder="./runs"):
     trainer.run()
 
 
-def infer(data_folder="./input/validation/v3", model_folder="./runs", prediction_folder="output"):
+def infer(data_folder="./input/validation", model_folder="./runs", prediction_folder="output"):
     """
     run inference, the output folder will be "./output"
     """
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
     if args.mode == "train":
-        data_folder = args.data_folder or "./input/train/v3"
+        data_folder = args.data_folder or "./input/train"
         train(data_folder=data_folder, model_folder=args.model_folder)
     elif args.mode == "infer":
         data_folder = args.data_folder or "./input/validation"
