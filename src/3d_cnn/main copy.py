@@ -31,20 +31,6 @@ from monai.transforms import (
     ScaleIntensityd,
 )
 
-class DiceCELoss(nn.Module):
-    """Dice and Xentropy loss"""
-
-    def __init__(self):
-        super().__init__()
-        self.dice = monai.losses.DiceLoss(include_background=False, to_onehot_y=True, softmax=True)
-        self.cross_entropy = nn.CrossEntropyLoss()
-
-    def forward(self, y_pred, y_true):
-        dice = self.dice(y_pred, y_true)
-        # CrossEntropyLoss target needs to have shape (B, D, H, W)
-        # Target from pipeline has shape (B, 1, D, H, W)
-        cross_entropy = self.cross_entropy(y_pred, torch.squeeze(y_true, dim=1).long())
-        return dice + cross_entropy
 
 def get_xforms(mode="train", keys=("image", "label")):
     """returns a composed transform for train/val/infer."""
@@ -53,23 +39,27 @@ def get_xforms(mode="train", keys=("image", "label")):
         LoadImaged(keys),
         AddChanneld(keys),
         Orientationd(keys, axcodes="LPS"),
-        Spacingd(keys, pixdim=(1.25, 1.25, 5.0), mode=("bilinear", "nearest")[: len(keys)]),
+        Spacingd(keys, pixdim=(1.25, 1.25, 5.0), mode=(
+            "bilinear", "nearest")[: len(keys)]),
         ScaleIntensityd(keys, minv=0.0, maxv=1.0),
         # ScaleIntensityRanged(keys[0], a_min=-1000.0, a_max=500.0, b_min=0.0, b_max=1.0, clip=True),
     ]
     if mode == "train":
         xforms.extend(
             [
-                SpatialPadd(keys, spatial_size=(192, 192, -1), mode="reflect"),  # ensure at least 192x192
+                SpatialPadd(keys, spatial_size=(192, 192, -1),
+                            mode="reflect"),  # ensure at least 192x192
                 RandAffined(
                     keys,
                     prob=0.25,
-                    rotate_range=(0.1, 0.1, None),  # 3 parameters control the transform on 3 dimensions
-                    scale_range=(0.2, 0.2, None), 
+                    # 3 parameters control the transform on 3 dimensions
+                    rotate_range=(0.1, 0.1, None),
+                    scale_range=(0.2, 0.2, None),
                     mode=("bilinear", "nearest"),
                     as_tensor_output=False,
                 ),
-                RandCropByPosNegLabeld(keys, label_key=keys[1], spatial_size=(192, 192, 16), num_samples=3),
+                RandCropByPosNegLabeld(keys, label_key=keys[1], spatial_size=(
+                    192, 192, 16), num_samples=3),
                 RandGaussianNoised(keys[0], prob=0.15, std=0.01),
                 RandFlipd(keys, spatial_axis=0, prob=0.5),
                 RandFlipd(keys, spatial_axis=1, prob=0.5),
@@ -84,6 +74,7 @@ def get_xforms(mode="train", keys=("image", "label")):
     xforms.extend([CastToTyped(keys, dtype=dtype), ToTensord(keys)])
     return monai.transforms.Compose(xforms)
 
+
 def get_net():
     """returns a unet model instance."""
 
@@ -95,7 +86,7 @@ def get_net():
         features=(32, 32, 64, 128, 256, 32),
         dropout=0.1,
     )
-    
+
     '''
     net = monai.networks.nets.UNet(
         dimensions=3,
@@ -108,6 +99,7 @@ def get_net():
     )
     '''
     return net
+
 
 def get_inferer(_mode=None):
     """returns a sliding window inference instance."""
@@ -123,30 +115,36 @@ def get_inferer(_mode=None):
     )
     return inferer
 
+
 def train(data_folder="../../input/train/v3", model_folder="../../runs"):
     """run a training pipeline."""
 
     images = sorted(glob.glob(os.path.join(data_folder, "mri/*.nii.gz")))
     labels = sorted(glob.glob(os.path.join(data_folder, "masks/*.nii")))
-    logging.info(f"training: image/label ({len(images)}) folder: {data_folder}")
+    logging.info(
+        f"training: image/label ({len(images)}) folder: {data_folder}")
 
     amp = True  # auto. mixed precision
     keys = ("image", "label")
     train_frac, val_frac = 0.8, 0.2
     n_train = int(train_frac * len(images)) + 1
     n_val = min(len(images) - n_train, int(val_frac * len(images)))
-    logging.info(f"training: train {n_train} val {n_val}, folder: {data_folder}")
+    logging.info(
+        f"training: train {n_train} val {n_val}, folder: {data_folder}")
 
-    train_files = [{keys[0]: img, keys[1]: seg} for img, seg in zip(images[:n_train], labels[:n_train])]
-    val_files   = [{keys[0]: img, keys[1]: seg} for img, seg in zip(images[-n_val:], labels[-n_val:])]
+    train_files = [{keys[0]: img, keys[1]: seg}
+                   for img, seg in zip(images[:n_train], labels[:n_train])]
+    val_files = [{keys[0]: img, keys[1]: seg}
+                 for img, seg in zip(images[-n_val:], labels[-n_val:])]
 
     # create a training data loader
     batch_size = 2
     logging.info(f"batch size {batch_size}")
-    
+
     train_transforms = get_xforms("train", keys)
-    train_ds         = monai.data.CacheDataset(data=train_files, transform=train_transforms)
-    
+    train_ds = monai.data.CacheDataset(
+        data=train_files, transform=train_transforms)
+
     train_loader = monai.data.DataLoader(
         train_ds,
         batch_size=batch_size,
@@ -174,11 +172,13 @@ def train(data_folder="../../input/train/v3", model_folder="../../runs"):
 
     # create evaluator (to be used to measure model quality during training
     val_post_transform = monai.transforms.Compose(
-        [AsDiscreted(keys=("pred", "label"), argmax=(True, False), to_onehot=True, n_classes=2)]
+        [AsDiscreted(keys=("pred", "label"), argmax=(
+            True, False), to_onehot=True, n_classes=2)]
     )
     val_handlers = [
         ProgressBar(),
-        CheckpointSaver(save_dir=model_folder, save_dict={"net": net}, save_key_metric=True, key_metric_n_saved=3),
+        CheckpointSaver(save_dir=model_folder, save_dict={
+                        "net": net}, save_key_metric=True, key_metric_n_saved=3),
     ]
     evaluator = monai.engines.SupervisedEvaluator(
         device=device,
@@ -196,10 +196,12 @@ def train(data_folder="../../input/train/v3", model_folder="../../runs"):
     # evaluator as an event handler of the trainer
     train_handlers = [
         ValidationHandler(validator=evaluator, interval=1, epoch_level=True),
-        StatsHandler(tag_name="train_loss", output_transform=lambda x: x["loss"])
+        StatsHandler(tag_name="train_loss",
+                     output_transform=lambda x: x["loss"])
     ]
-    
-    scheduler = CosineAnnealingScheduler(opt, 'lr', 1e-5, 1e-3, len(train_loader))
+
+    scheduler = CosineAnnealingScheduler(
+        opt, 'lr', 1e-5, 1e-3, len(train_loader))
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
 
     trainer = monai.engines.SupervisedTrainer(
@@ -215,6 +217,7 @@ def train(data_folder="../../input/train/v3", model_folder="../../runs"):
         amp=amp,
     )
     trainer.run()
+
 
 def infer(data_folder="../..", model_folder="runs", prediction_folder="output"):
     """
@@ -251,17 +254,20 @@ def infer(data_folder="../..", model_folder="runs", prediction_folder="output"):
     saver = monai.data.NiftiSaver(output_dir=prediction_folder, mode="nearest")
     with torch.no_grad():
         for infer_data in infer_loader:
-            logging.info(f"segmenting {infer_data['image_meta_dict']['filename_or_obj']}")
+            logging.info(
+                f"segmenting {infer_data['image_meta_dict']['filename_or_obj']}")
             preds = inferer(infer_data[keys[0]].to(device), net)
             n = 1.0
             for _ in range(4):
                 # test time augmentations
-                _img = RandGaussianNoised(keys[0], prob=1.0, std=0.01)(infer_data)[keys[0]]
+                _img = RandGaussianNoised(
+                    keys[0], prob=1.0, std=0.01)(infer_data)[keys[0]]
                 pred = inferer(_img.to(device), net)
                 preds = preds + pred
                 n = n + 1.0
                 for dims in [[2], [3]]:
-                    flip_pred = inferer(torch.flip(_img.to(device), dims=dims), net)
+                    flip_pred = inferer(torch.flip(
+                        _img.to(device), dims=dims), net)
                     pred = torch.flip(flip_pred, dims=dims)
                     preds = preds + pred
                     n = n + 1.0
@@ -282,15 +288,19 @@ def infer(data_folder="../..", model_folder="runs", prediction_folder="output"):
         shutil.copy(f, to_name)
     logging.info(f"predictions copied to {submission_dir}.")
 
+
 if __name__ == "__main__":
     torch.backends.cudnn.benchmark = True
 
-    parser = argparse.ArgumentParser(description="Run a basic UNet segmentation baseline.")
+    parser = argparse.ArgumentParser(
+        description="Run a basic UNet segmentation baseline.")
     parser.add_argument(
         "mode", metavar="mode", default="train", choices=("train", "infer"), type=str, help="mode of workflow"
     )
-    parser.add_argument("--data_folder", default="", type=str, help="training data folder")
-    parser.add_argument("--model_folder", default="../../runs", type=str, help="model folder")
+    parser.add_argument("--data_folder", default="",
+                        type=str, help="training data folder")
+    parser.add_argument("--model_folder", default="../../runs",
+                        type=str, help="model folder")
     args = parser.parse_args()
 
     monai.config.print_config()

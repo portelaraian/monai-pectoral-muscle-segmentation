@@ -1,0 +1,1 @@
+python3 ./src/3d_cnn/main.py train

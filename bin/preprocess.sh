@@ -1,1 +1,0 @@
-python -m src.preprocess.checking_files --input-mri ./input/raw/mri/ --input-masks ./input/raw/masks/
