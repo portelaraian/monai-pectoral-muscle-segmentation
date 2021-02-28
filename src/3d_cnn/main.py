@@ -70,7 +70,7 @@ def train(data_folder="./input/train", model_folder="./runs"):
                  for img, seg in zip(images[-n_val:], labels[-n_val:])]
 
     # create a training data loader
-    batch_size = 2
+    batch_size = 8
     logging.info(f"batch size {batch_size}")
 
     train_transforms = factory.get_xforms("train", keys)

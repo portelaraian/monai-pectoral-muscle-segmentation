@@ -72,14 +72,14 @@ def get_net():
     """returns a unet model instance."""
 
     n_classes = 2
-    net = monai.networks.nets.BasicUNet(
+    '''net = monai.networks.nets.BasicUNet(
         dimensions=3,
         in_channels=1,
         out_channels=n_classes,
         features=(32, 32, 64, 128, 256, 32),
         dropout=0.2,
-    )
-
+    )'''
+    
     '''
     net = monai.networks.nets.UNet(
         dimensions=3,
@@ -91,6 +91,20 @@ def get_net():
         norm=Norm.BATCH,
     )
     '''
+    
+    net = monai.networks.nets.SegResNet(
+        spatial_dims=3,
+        init_filters=8,
+        in_channels=1,
+        out_channels=n_classes,
+        dropout_prob=None,
+        norm_name='group',
+        num_groups=8,
+        use_conv_final=True,
+        blocks_down=(1, 2, 2, 4),
+        blocks_up=(1, 1, 1),
+    )
+    
     return net
 
 
