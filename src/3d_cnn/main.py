@@ -9,9 +9,9 @@ from monai.handlers import (
     MeanDice,
     StatsHandler,
     ValidationHandler,
-    LrScheduleHandler,
     HausdorffDistance,
-    ROCAUC
+    ROCAUC,
+    ConfusionMatrix
 )
 import monai
 from utils.config import Config
@@ -58,9 +58,13 @@ def main():
 
     model = factory.get_model(cfg).to(DEVICE)
 
+    logging.info(f"Model: {cfg.model.name}")
+
     if cfg.mode == "train":
+        logging.info(f"Mode: {cfg.mode}")
         train(cfg, model)
     elif cfg.mode == "test":
+        logging.info(f"Mode: {cfg.mode}")
         infer(cfg, model)
     else:
         raise ValueError("Unknown mode.")
@@ -74,7 +78,7 @@ def train(cfg, model):
     labels = sorted(glob.glob(
         os.path.join(cfg.data.train.imgdir, "masks/*.nii")))
 
-    logging.info(f"training: image/label ({len(images)}) \
+    logging.info(f"Training: image/label ({len(images)}) \
                  folder: {cfg.data.train.imgdir}"
                  )
 
@@ -84,7 +88,7 @@ def train(cfg, model):
     n_val = min(len(images) - n_train, int(val_frac * len(images)))
 
     logging.info(
-        f"training: train {n_train} val {n_val}, folder: {cfg.data.train.imgdir}"
+        f"Training: train {n_train} val {n_val}, folder: {cfg.data.train.imgdir}"
     )
 
     train_files = [{keys[0]: img, keys[1]: seg}
@@ -94,14 +98,14 @@ def train(cfg, model):
 
     # create a training data loader
     batch_size = cfg.batch_size
-    logging.info(f"batch size {batch_size}")
+    logging.info(f"Batch size: {batch_size}")
 
+    # creating data loaders
     train_loader = factory.get_dataloader(
         cfg.data.train, cfg.mode,
         keys, train_files
     )
 
-    # create a validation data loader
     val_loader = factory.get_dataloader(
         cfg.data.train, 'val',
         keys, val_files
@@ -110,6 +114,10 @@ def train(cfg, model):
     optimizer = factory.get_optimizer(cfg, model.parameters())
     scheduler = factory.get_scheduler(cfg, optimizer, len(train_loader))
     criterion = factory.get_loss(cfg)
+
+    logging.info(f"Optimizer: {cfg.optimizer.name}")
+    logging.info(f"LR Scheduler: {cfg.scheduler.name}")
+    logging.info(f"Criterion: {cfg.loss.name}")
 
     # create evaluator (to be used to measure model quality during training)
     val_post_transform = monai.transforms.Compose([
@@ -135,8 +143,12 @@ def train(cfg, model):
         post_transform=val_post_transform,
         key_val_metric={
             "val_mean_dice": MeanDice(include_background=False, output_transform=lambda x: (x["pred"], x["label"])),
-            # "val_HausdorffDistance": HausdorffDistance(include_background=False, output_transform=lambda x: (x["pred"], x["label"])),
-            # "val_roc_auc": ROCAUC(to_onehot_y=True, softmax=True, output_transform=lambda x: (x["pred"], x["label"])),
+            "val_hausdorff_distance": HausdorffDistance(include_background=False,
+                                                        output_transform=lambda x: (x["pred"], x["label"])),
+            "roc_auc": ROCAUC(to_onehot_y=True, softmax=True,
+                              output_transform=lambda x: (x["pred"], x["label"])),
+            "f1_score": ConfusionMatrix(include_background=False, metric_name="f1 score",
+                                        output_transform=lambda x: (x["pred"], x["label"]))
         },
         val_handlers=val_handlers,
         amp=cfg.amp,
