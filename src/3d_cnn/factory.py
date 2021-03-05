@@ -23,24 +23,23 @@ from monai.transforms import (
 from utils.lr_schedulers import DiceCELoss
 
 
-def _get_xforms(mode="train", keys=("image", "label")):
+def _get_xforms(mode="train", keys=("image", "label"), img_size=(192, 192, 16)):
     """returns a composed transform."""
 
     xforms = [
         LoadImaged(keys),
         AddChanneld(keys),
         Orientationd(keys, axcodes="LPS"),
-        Spacingd(keys, pixdim=(1.25, 1.25, 5.0), mode=(
-            "bilinear", "nearest")[: len(keys)]),
+        Spacingd(keys, pixdim=(1.25, 1.25, 5.0), 
+                 mode=("bilinear", "nearest")[: len(keys)]),
         ScaleIntensityd(keys, minv=0.0, maxv=1.0),
-        # ScaleIntensityRanged(keys[0], a_min=-1000.0, a_max=500.0, b_min=0.0, b_max=1.0, clip=True),
     ]
 
     if mode == "train":
         xforms.extend(
             [
-                SpatialPadd(keys, spatial_size=(192, 192, -1),
-                            mode="reflect"),  # ensure at least 192x192
+                SpatialPadd(keys, spatial_size=(img_size[0], img_size[1], -1),
+                            mode="reflect"),  # ensure at least WxD
                 RandAffined(
                     keys,
                     prob=0.25,
@@ -51,7 +50,7 @@ def _get_xforms(mode="train", keys=("image", "label")):
                     as_tensor_output=False,
                 ),
                 RandCropByPosNegLabeld(keys, label_key=keys[1],
-                                       spatial_size=(192, 192, 16),
+                                       spatial_size=img_size,
                                        num_samples=3),
                 RandGaussianNoised(keys[0], prob=0.15, std=0.01),
                 RandFlipd(keys, spatial_axis=0, prob=0.5),
@@ -72,15 +71,15 @@ def _get_xforms(mode="train", keys=("image", "label")):
     return monai.transforms.Compose(xforms)
 
 
-def get_dataloader(cfg, mode, keys, data):
+def get_dataloader(cfg, mode, keys, data, img_size):
     if mode == 'train':
-        train_transforms = _get_xforms("train", keys)
+        train_transforms = _get_xforms("train", keys, img_size)
         dataset = monai.data.CacheDataset(
             data=data,
             transform=train_transforms
         )
     elif mode == 'val':
-        val_transforms = _get_xforms("val", keys)
+        val_transforms = _get_xforms("val", keys, img_size)
         dataset = monai.data.CacheDataset(
             data=data,
             transform=val_transforms
@@ -88,10 +87,12 @@ def get_dataloader(cfg, mode, keys, data):
     else:
         # Test
         pass
-
+    
+    print(f"Valid batch size: {cfg.batch_size}")
+    
     return monai.data.DataLoader(
         dataset,
-        batch_size=cfg.loader.batch_size,
+        batch_size=cfg.batch_size,
         shuffle=cfg.loader.shuffle,
         num_workers=cfg.loader.num_workers,
         pin_memory=torch.cuda.is_available(),
@@ -140,7 +141,7 @@ def get_scheduler(cfg, optimizer, len_loader):
 
 def get_inferer(patch_size):
     """returns a sliding window inference instance."""
-
+    
     sw_batch_size, overlap = 2, 0.5
     inferer = monai.inferers.SlidingWindowInferer(
         roi_size=patch_size,

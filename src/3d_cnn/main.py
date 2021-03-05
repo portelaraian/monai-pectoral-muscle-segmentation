@@ -103,12 +103,12 @@ def train(cfg, model):
     # creating data loaders
     train_loader = factory.get_dataloader(
         cfg.data.train, cfg.mode,
-        keys, train_files
+        keys, train_files, cfg.imgsize
     )
 
     val_loader = factory.get_dataloader(
-        cfg.data.train, 'val',
-        keys, val_files
+        cfg.data.valid, 'val',
+        keys, val_files, cfg.imgsize
     )
 
     optimizer = factory.get_optimizer(cfg, model.parameters())
@@ -132,7 +132,7 @@ def train(cfg, model):
         CheckpointSaver(save_dir=cfg.workdir,
                         save_dict={"model": model},
                         save_key_metric=True,
-                        key_metric_n_saved=15),
+                        key_metric_n_saved=20),
     ]
 
     evaluator = monai.engines.SupervisedEvaluator(
@@ -143,12 +143,6 @@ def train(cfg, model):
         post_transform=val_post_transform,
         key_val_metric={
             "val_mean_dice": MeanDice(include_background=False, output_transform=lambda x: (x["pred"], x["label"])),
-            "val_hausdorff_distance": HausdorffDistance(include_background=False,
-                                                        output_transform=lambda x: (x["pred"], x["label"])),
-            "roc_auc": ROCAUC(to_onehot_y=True, softmax=True,
-                              output_transform=lambda x: (x["pred"], x["label"])),
-            "f1_score": ConfusionMatrix(include_background=False, metric_name="f1 score",
-                                        output_transform=lambda x: (x["pred"], x["label"]))
         },
         val_handlers=val_handlers,
         amp=cfg.amp,

@@ -1,11 +1,11 @@
-workdir = './model/SegResNet'
+workdir = './model/SegResNet_v2'
 seed = 333
 
 epochs = 500
 amp = True
-batch_size = 8
+batch_size = 4
 num_workers = 4
-imgsize = (192, 192, 16)
+imgsize = (320, 320, 16)
 
 loss = dict(
     name='DiceCELoss',
@@ -54,11 +54,22 @@ data = dict(
         batch_size=batch_size,
         loader=dict(
             shuffle=True,
-            batch_size=batch_size,
             num_workers=num_workers,
             pin_memory=True,
         ),
     ),
+    
+    valid=dict(
+        imgdir='./input/train/',
+        imgsize=imgsize,
+        batch_size=1,
+        loader=dict(
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True,
+        ),
+    ),
+    
     test=dict(
         imgdir='./input/test',
         imgsize=imgsize,
