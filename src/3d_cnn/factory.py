@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.optim import lr_scheduler
+from ignite.contrib.handlers import param_scheduler
 import monai
 from monai.transforms import (
     AddChanneld,
@@ -71,44 +72,38 @@ def _get_xforms(mode="train", keys=("image", "label")):
     return monai.transforms.Compose(xforms)
 
 
+def get_dataloader(cfg, mode, keys, data):
+    if mode == 'train':
+        train_transforms = _get_xforms("train", keys)
+        dataset = monai.data.CacheDataset(
+            data=data,
+            transform=train_transforms
+        )
+    elif mode == 'val':
+        val_transforms = _get_xforms("val", keys)
+        dataset = monai.data.CacheDataset(
+            data=data,
+            transform=val_transforms
+        )
+    else:
+        # Test
+        pass
+
+    return monai.data.DataLoader(
+        dataset,
+        batch_size=cfg.loader.batch_size,
+        shuffle=cfg.loader.shuffle,
+        num_workers=cfg.loader.num_workers,
+        pin_memory=torch.cuda.is_available(),
+    )
+
+
 def get_model(cfg):
     """returns a unet model instance."""
-
-    n_classes = 2
-    '''net = monai.networks.nets.BasicUNet(
-        dimensions=3,
-        in_channels=1,
-        out_channels=n_classes,
-        features=(32, 32, 64, 128, 256, 32),
-        dropout=0.2,
-    )'''
-
-    '''
-    net = monai.networks.nets.UNet(
-        dimensions=3,
-        in_channels=1,
-        out_channels=n_classes, # 2
-        channels=(16, 32, 64, 128, 256),
-        strides=(2, 2, 2, 2),
-        num_res_units=2,
-        norm=Norm.BATCH,
-    )
-    '''
-
-    net = monai.networks.nets.SegResNet(
-        spatial_dims=3,
-        init_filters=8,
-        in_channels=1,
-        out_channels=n_classes,
-        dropout_prob=None,
-        norm_name='group',
-        num_groups=8,
-        use_conv_final=True,
-        blocks_down=(1, 2, 2, 4),
-        blocks_up=(1, 1, 1),
-    )
-
-    return net
+    try:
+        return getattr(monai.networks.nets, cfg.model.name)(**cfg.model.params)
+    except:
+        print(f"Failed to load model. Model: {cfg.model.name}")
 
 
 def get_loss(cfg):
@@ -126,43 +121,21 @@ def get_optimizer(cfg, parameters):
     optimizer = getattr(torch.optim, cfg.optimizer.name)(
         parameters, **cfg.optimizer.params)
 
-    log(f'optim: {cfg.optimizer.name}')
+    print(f'optim: {cfg.optimizer.name}')
 
     return optimizer
 
 
-def get_scheduler(cfg, optimizer):
+def get_scheduler(cfg, optimizer, len_loader):
     try:
-        return getattr(lr_scheduler, cfg.scheduler.name)(
-            optimizer, **cfg.scheduler.params)
+        if cfg.scheduler.name == "CosineAnnealingScheduler":
+            return getattr(param_scheduler, cfg.scheduler.name)(
+                optimizer, cycle_size=len_loader, **cfg.scheduler.params)
+        else:
+            return getattr(param_scheduler, cfg.scheduler.name)(
+                optimizer, **cfg.scheduler.params)
     except:
         print(f"Failed to load the scheduler. Scheduler: {cfg.scheduler.name}")
-
-
-def get_dataloader(cfg, mode, keys, data):
-    if mode == 'train':
-        train_transforms = _get_xforms("train", keys)
-        dataset = monai.data.CacheDataset(
-            data=data,
-            transform=train_transforms
-        )
-    elif mode == 'val':
-        val_transforms = factory.get_xforms("val", keys)
-        dataset = monai.data.CacheDataset(
-            data=data,
-            transform=val_transforms
-        )
-    else:
-        # Test
-        pass
-
-    return monai.data.DataLoader(
-        dataset,
-        batch_size=cfg.batch_size,
-        shuffle=cfg.shuffle,
-        num_workers=cfg.num_workers,
-        pin_memory=torch.cuda.is_available(),
-    )
 
 
 def get_inferer(patch_size):

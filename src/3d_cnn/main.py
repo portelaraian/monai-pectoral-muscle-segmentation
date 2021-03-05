@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from ignite.contrib.handlers import ProgressBar
 from ignite.engine import Engine, Events
-from ignite.contrib.handlers.param_scheduler import CosineAnnealingScheduler
 from monai.transforms import AsDiscreted
 from monai.metrics import DiceMetric, compute_roc_auc
 from monai.handlers import (
@@ -21,6 +20,8 @@ import logging
 import os
 import shutil
 import sys
+import argparse
+import factory
 sys.path.append(os.path.abspath(os.path.join("./")))
 
 
@@ -31,11 +32,11 @@ def get_args():
     parser = argparse.ArgumentParser(
         description="Runs the segmentation algorithm.")
 
-    parser.add_argument("config")
     parser.add_argument("mode", metavar="mode", default="train",
                         choices=("train", "test"),
                         type=str, help="mode of workflow"
                         )
+    parser.add_argument("config")
     parser.add_argument("--gpu", type=int, default=0)
 
     return parser.parse_args()
@@ -48,14 +49,14 @@ def main():
     cfg.mode = args.mode
     cfg.gpu = args.gpu
 
-    torch.cuda.set_device(0)
+    torch.cuda.set_device(cfg.gpu)
 
     monai.config.print_config()
     monai.utils.set_determinism(seed=cfg.seed)
 
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
-    model = factory.get_model().to(DEVICE)
+    model = factory.get_model(cfg).to(DEVICE)
 
     if cfg.mode == "train":
         train(cfg, model)
@@ -74,7 +75,7 @@ def train(cfg, model):
         os.path.join(cfg.data.train.imgdir, "masks/*.nii")))
 
     logging.info(f"training: image/label ({len(images)}) \
-                 folder: {data_folder}"
+                 folder: {cfg.data.train.imgdir}"
                  )
 
     keys = ("image", "label")
@@ -83,7 +84,7 @@ def train(cfg, model):
     n_val = min(len(images) - n_train, int(val_frac * len(images)))
 
     logging.info(
-        f"training: train {n_train} val {n_val}, folder: {data_folder}"
+        f"training: train {n_train} val {n_val}, folder: {cfg.data.train.imgdir}"
     )
 
     train_files = [{keys[0]: img, keys[1]: seg}
@@ -107,7 +108,7 @@ def train(cfg, model):
     )
 
     optimizer = factory.get_optimizer(cfg, model.parameters())
-    scheduler = factory.get_scheduler(cfg, optimizer)
+    scheduler = factory.get_scheduler(cfg, optimizer, len(train_loader))
     criterion = factory.get_loss(cfg)
 
     # create evaluator (to be used to measure model quality during training)
@@ -150,12 +151,12 @@ def train(cfg, model):
 
     trainer = monai.engines.SupervisedTrainer(
         device=DEVICE,
-        max_epochs=max_epochs,
+        max_epochs=cfg.epochs,
         train_data_loader=train_loader,
         network=model,
-        optimizer=opt,
+        optimizer=optimizer,
         loss_function=criterion,
-        inferer=factory.get_inferer(),
+        inferer=factory.get_inferer(cfg.imgsize),
         key_train_metric=None,
         train_handlers=train_handlers,
         amp=cfg.amp,
@@ -199,8 +200,7 @@ def infer(cfg, model):
     saver = monai.data.NiftiSaver(output_dir=prediction_folder, mode="nearest")
     with torch.no_grad():
         for infer_data in infer_loader:
-            logging.info(
-                f"segmenting {infer_data["image_meta_dict"]["filename_or_obj"]}")
+            # logging.info(f"segmenting {infer_data["image_meta_dict"]["filename_or_obj"]}")
             preds = inferer(infer_data[keys[0]].to(device), net)
             n = 1.0
             for _ in range(4):

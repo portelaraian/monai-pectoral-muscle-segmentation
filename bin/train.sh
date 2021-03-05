@@ -5,7 +5,7 @@ train() {
     fold=$2
 
     conf=./conf/${model}.py
-    python3 ./src/3d_cnn/main.py train ${conf}  --gpu ${gpu}
+    python3 ./src/3d_cnn/main.py train ${conf} --gpu ${gpu}
 }
 
 train model001

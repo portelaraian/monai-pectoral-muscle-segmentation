@@ -8,7 +8,7 @@ num_workers = 4
 imgsize = (192, 192, 16)
 
 loss = dict(
-    name='BCEWithLogitsLoss',
+    name='DiceCELoss',
     params=dict(),
 )
 
@@ -28,7 +28,7 @@ model = dict(
         spatial_dims=3,
         init_filters=8,
         in_channels=1,
-        out_channels=n_classes,
+        out_channels=2,
         dropout_prob=None,
         norm_name='group',
         num_groups=8,
@@ -39,18 +39,19 @@ model = dict(
 )
 
 scheduler = dict(
-    name='MultiStepLR',
+    name='CosineAnnealingScheduler',
     params=dict(
-        milestones=[1, 2],
-        gamma=3/7,
+        param_name='lr',
+        start_value=1e-5,
+        end_value=1e-3,
     ),
 )
 
 data = dict(
     train=dict(
-        imgdir='./input/train',
+        imgdir='./input/train/',
         imgsize=imgsize,
-        batch_size=batch_size
+        batch_size=batch_size,
         loader=dict(
             shuffle=True,
             batch_size=batch_size,
