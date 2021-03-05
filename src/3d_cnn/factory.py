@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+from torch import nn
+from torch.optim import lr_scheduler
 import monai
 from monai.transforms import (
     AddChanneld,
@@ -17,9 +19,10 @@ from monai.transforms import (
     ToTensord,
     ScaleIntensityd,
 )
+from utils.lr_schedulers import DiceCELoss
 
 
-def get_xforms(mode="train", keys=("image", "label")):
+def _get_xforms(mode="train", keys=("image", "label")):
     """returns a composed transform."""
 
     xforms = [
@@ -68,7 +71,7 @@ def get_xforms(mode="train", keys=("image", "label")):
     return monai.transforms.Compose(xforms)
 
 
-def get_net():
+def get_model(cfg):
     """returns a unet model instance."""
 
     n_classes = 2
@@ -79,7 +82,7 @@ def get_net():
         features=(32, 32, 64, 128, 256, 32),
         dropout=0.2,
     )'''
-    
+
     '''
     net = monai.networks.nets.UNet(
         dimensions=3,
@@ -91,7 +94,7 @@ def get_net():
         norm=Norm.BATCH,
     )
     '''
-    
+
     net = monai.networks.nets.SegResNet(
         spatial_dims=3,
         init_filters=8,
@@ -104,31 +107,67 @@ def get_net():
         blocks_down=(1, 2, 2, 4),
         blocks_up=(1, 1, 1),
     )
-    
+
     return net
 
 
-def get_loss(loss_name, loss_params):
+def get_loss(cfg):
+    if cfg.loss.name == "DiceCELoss":
+        return DiceCELoss()
+
     try:
-        loss = getattr(monai.losses, loss_name)(**loss_params)
+        return getattr(monai.losses, cfg.loss.name)(**cfg.loss.params)
     except:
-        print("Failed to import and load the loss function")
+        print(
+            f"Failed to import and load the loss function. Loss Function {cfg.loss.name}")
 
 
-def get_dataloader(dataset, batch_sz, shuffle=False):
+def get_optimizer(cfg, parameters):
+    optimizer = getattr(torch.optim, cfg.optimizer.name)(
+        parameters, **cfg.optimizer.params)
+
+    log(f'optim: {cfg.optimizer.name}')
+
+    return optimizer
+
+
+def get_scheduler(cfg, optimizer):
+    try:
+        return getattr(lr_scheduler, cfg.scheduler.name)(
+            optimizer, **cfg.scheduler.params)
+    except:
+        print(f"Failed to load the scheduler. Scheduler: {cfg.scheduler.name}")
+
+
+def get_dataloader(cfg, mode, keys, data):
+    if mode == 'train':
+        train_transforms = _get_xforms("train", keys)
+        dataset = monai.data.CacheDataset(
+            data=data,
+            transform=train_transforms
+        )
+    elif mode == 'val':
+        val_transforms = factory.get_xforms("val", keys)
+        dataset = monai.data.CacheDataset(
+            data=data,
+            transform=val_transforms
+        )
+    else:
+        # Test
+        pass
+
     return monai.data.DataLoader(
         dataset,
-        batch_size=batch_sz,
-        shuffle=shuffle,
-        num_workers=4,
+        batch_size=cfg.batch_size,
+        shuffle=cfg.shuffle,
+        num_workers=cfg.num_workers,
         pin_memory=torch.cuda.is_available(),
-    )   
+    )
 
 
-def get_inferer(_mode=None):
+def get_inferer(patch_size):
     """returns a sliding window inference instance."""
 
-    patch_size = (192, 192, 16)
     sw_batch_size, overlap = 2, 0.5
     inferer = monai.inferers.SlidingWindowInferer(
         roi_size=patch_size,
@@ -138,5 +177,3 @@ def get_inferer(_mode=None):
         padding_mode="replicate",
     )
     return inferer
-
-
