@@ -1,11 +1,18 @@
 workdir = './model/SegResNet_v2'
 seed = 333
 
+
 epochs = 500
 amp = True
 batch_size = 4
 num_workers = 4
 imgsize = (320, 320, 16)
+
+train_frac = 0.8
+val_frac = 0.2
+
+prediction_folder = f"{workdir}/output"
+checkpoints = f"{workdir}/*.pt"
 
 loss = dict(
     name='DiceCELoss',
@@ -58,7 +65,7 @@ data = dict(
             pin_memory=True,
         ),
     ),
-    
+
     valid=dict(
         imgdir='./input/train/',
         imgsize=imgsize,
@@ -69,14 +76,13 @@ data = dict(
             pin_memory=True,
         ),
     ),
-    
+
     test=dict(
         imgdir='./input/test',
         imgsize=imgsize,
+        batch_size=1,
         loader=dict(
             shuffle=False,
-            batch_size=batch_size,
-            drop_last=False,
             num_workers=num_workers,
             pin_memory=True,
         ),
