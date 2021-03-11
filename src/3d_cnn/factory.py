@@ -24,7 +24,7 @@ from utils.logger import log
 from utils.lr_schedulers import DiceCELoss
 
 
-def _get_xforms(mode="train", keys=("image", "label"), img_size=(192, 192, 16)):
+def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16)):
     """returns a composed transform."""
 
     xforms = [
