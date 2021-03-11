@@ -1,12 +1,12 @@
 workdir = './model/SegResNet_v3'
-seed = 333
+seed = 9200
 
 
 epochs = 800
 amp = True
 batch_size = 8
 num_workers = 4
-imgsize = (320, 320, 16)
+imgsize = (192, 192, 16)
 
 train_frac = 0.85
 val_frac = 0.15

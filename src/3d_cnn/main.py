@@ -76,7 +76,8 @@ def main():
         raise ValueError("Unknown mode.")
 
 
-def _config_trainer_logging(trainer, name=None):
+def _config_trainer_logging(cfg, trainer, name=None):
+    log(f"Setting up trainer logging: trainerIgnite_{name}.log")
     trainer.logger = setup_logger(
         name=name,
         level=10,  # Debug level
@@ -177,7 +178,7 @@ def train(cfg, model):
         train_handlers=train_handlers,
         amp=cfg.amp,
     )
-    _config_trainer_logging(trainer, cfg.model.name)
+    # _config_trainer_logging(cfg, trainer, cfg.model.name)
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
     trainer.run()
 
