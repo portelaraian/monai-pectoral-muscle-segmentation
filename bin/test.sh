@@ -8,4 +8,4 @@ test() {
     python3 ./src/3d_cnn/main.py test ${conf} --gpu ${gpu}
 }
 
-test model001
+test model002
