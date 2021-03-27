@@ -13,6 +13,7 @@ val_frac = 0.2
 
 prediction_folder = f"{workdir}/output"
 checkpoints = f"{workdir}/*.pt"
+trained_model_path = f"{workdir}/model_key_metric=0.9104.pt"
 
 loss = dict(
     name='DiceCELoss',

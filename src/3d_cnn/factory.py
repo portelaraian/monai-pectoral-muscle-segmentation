@@ -147,5 +147,6 @@ def get_inferer(patch_size):
         overlap=overlap,
         mode="gaussian",
         padding_mode="replicate",
+
     )
     return inferer
