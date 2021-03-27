@@ -11,8 +11,13 @@ imgsize = (192, 192, 16)
 train_frac = 0.85
 val_frac = 0.15
 
+# Inferer
 prediction_folder = f"{workdir}/output"
 checkpoints = f"{workdir}/*.pt"
+trained_model_path = f"{workdir}/model_key_metric=0.9104.pt"
+
+sw_batch_size = 2
+
 
 loss = dict(
     name='DiceCELoss',
