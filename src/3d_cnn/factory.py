@@ -25,7 +25,16 @@ from utils.lr_schedulers import DiceCELoss
 
 
 def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16)):
-    """returns a composed transform."""
+    """Returns a composed transform.
+
+    Args:
+        mode (str, optional): Mode speficied (e.g. train/test). Defaults to "train".
+        keys (tuple, optional): Keys used to perfom MONAI transforms. Defaults to ("image", "label").
+        img_size (tuple, optional): Spatial image size. Defaults to (320, 320, 16).
+
+    Returns:
+        [monai.transforms]: Returns MONAI transforms composed.
+    """
 
     xforms = [
         LoadImaged(keys),
@@ -73,13 +82,25 @@ def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16)):
 
 
 def get_dataloader(cfg, mode, keys, data, img_size):
+    """Apply the transforms and create a DataLoader.
+
+    Args:
+        cfg (config file): Config file from model.
+        mode (str): Mode speficied (e.g. train/test).
+        keys (tuple): Keys used to perfom MONAI transforms.
+        data (list): List containing all the files (in this case the MRIs).
+        img_size (tuple): Spatial image size.
+
+    Returns:
+        [monai.data.DataLoader]: Returns a DataLoader
+    """
     if mode == 'train':
         transforms = _get_xforms("train", keys, img_size)
     elif mode == 'val':
         transforms = _get_xforms("val", keys, img_size)
     else:
         # Test
-        transforms = _get_xforms("infer", keys, img_size)
+        transforms = _get_xforms("test", keys, img_size)
 
     dataset = monai.data.CacheDataset(
         data=data,
@@ -97,7 +118,14 @@ def get_dataloader(cfg, mode, keys, data, img_size):
 
 
 def get_model(cfg):
-    """returns a unet model instance."""
+    """Instantiates the model.  
+
+    Args:
+        cfg (config file): Config file from model.
+
+    Returns:
+        Pytorch (MONAI) model: Returns a model instance.
+    """
     try:
         return getattr(monai.networks.nets, cfg.model.name)(**cfg.model.params)
     except:
@@ -105,6 +133,14 @@ def get_model(cfg):
 
 
 def get_loss(cfg):
+    """Instantiate the loss function.
+
+    Args:
+        cfg (config file): Config file from model.
+
+    Returns:
+        monai.losses: Returns a monai instance loss or a custom loss (if specified DiceCELoss).
+    """
     if cfg.loss.name == "DiceCELoss":
         return DiceCELoss()
 
@@ -117,6 +153,15 @@ def get_loss(cfg):
 
 
 def get_optimizer(cfg, parameters):
+    """Get the optimizer.
+
+    Args:
+        cfg (config file): Config file from model.
+        parameters (model.params): Params from the model.
+
+    Returns:
+        torch.optim: Returns a optimizer (Pytorch).
+    """
     optimizer = getattr(torch.optim, cfg.optimizer.name)(
         parameters, **cfg.optimizer.params)
 
@@ -126,6 +171,16 @@ def get_optimizer(cfg, parameters):
 
 
 def get_scheduler(cfg, optimizer, len_loader):
+    """Get scheduler.
+
+    Args:
+        cfg (config file): Config file from model.
+        optimizer (torch.optim): Optimizer.
+        len_loader (int): Len of the DataLoader. 
+
+    Returns:
+        lr_scheduler (ignite): Returns a learning rate scheduler.
+    """
     try:
         if cfg.scheduler.name == "CosineAnnealingScheduler":
             return getattr(param_scheduler, cfg.scheduler.name)(
@@ -138,7 +193,14 @@ def get_scheduler(cfg, optimizer, len_loader):
 
 
 def get_inferer(patch_size):
-    """returns a sliding window inference instance."""
+    """Returns a sliding window inference instance
+
+    Args:
+        patch_size (tuple): ROI size
+
+    Returns:
+        monai.inferes: Returns a SlidingWindowInferer.
+    """
 
     sw_batch_size, overlap = 2, 0.5
     inferer = monai.inferers.SlidingWindowInferer(

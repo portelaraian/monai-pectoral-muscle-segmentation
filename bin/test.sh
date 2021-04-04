@@ -5,7 +5,7 @@ test() {
     fold=$2
 
     conf=./conf/${model}.py
-    python3 ./src/3d_cnn/main.py test-segment ${conf} --gpu ${gpu}
+    python3 ./src/3d_cnn/main.py test ${conf} --gpu ${gpu}
 }
 
 test model002
