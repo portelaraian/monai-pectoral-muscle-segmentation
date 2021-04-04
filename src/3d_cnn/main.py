@@ -37,6 +37,11 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def get_args():
+    """Parse the arguments
+
+    Returns:
+        parser: parser containing the parameters.
+    """
     parser = argparse.ArgumentParser(
         description="Runs the segmentation algorithm.")
 
@@ -51,6 +56,11 @@ def get_args():
 
 
 def main():
+    """Set the main configurations and run the mode specified.
+
+    Raises:
+        ValueError: Unknown mode specified.
+    """
     args = get_args()
     cfg = Config.fromfile(args.config)
 
@@ -74,25 +84,18 @@ def main():
         train(cfg, model)
     elif cfg.mode == "test":
         log(f"Mode: {cfg.mode}")
-        infer(cfg, model)
-    elif cfg.mode == "test-segment":
-        log(f"Mode: {cfg.mode}")
         test(cfg, model)
     else:
         raise ValueError("Unknown mode.")
 
 
-def _config_trainer_logging(cfg, trainer, name=None):
-    log(f"Setting up trainer logging: trainerIgnite_{name}.log")
-    trainer.logger = setup_logger(
-        name=name,
-        level=10,  # Debug level
-        filepath=os.path.join(cfg.workdir, "trainerIgnite_%s.log" % (name))
-    )
-
-
 def train(cfg, model):
-    """run a training pipeline."""
+    """Run a training pipeline.
+
+    Args:
+        cfg (config file): Config file from model.
+        model (torch model): Pytorch MONAI model.
+    """
 
     images = sorted(glob.glob(
         os.path.join(cfg.data.train.imgdir, "mri/*.nii.gz")))
@@ -192,9 +195,9 @@ def train(cfg, model):
 def test(cfg, model):
     """Perform evalutaion and save the segmentations 
 
-    Args:
-        cfg (config file): Config file from model 
-        model (monai): Pytorch MONAI model 
+     Args:
+        cfg (config file): Config file from model.
+        model (torch model): Pytorch MONAI model.
     """
     images = sorted(glob.glob(
         os.path.join(cfg.data.test.imgdir, "mri/*.nii.gz")))
