@@ -2,8 +2,10 @@ import torch
 import torch.nn as nn
 from ignite.contrib.handlers import ProgressBar
 from monai.engines import SupervisedEvaluator
-from ignite.utils import setup_logger
-from ignite.metrics import Accuracy, DiceCoefficient, ConfusionMatrix
+from ignite.utils import setup_logger, to_onehot
+from ignite.metrics import Accuracy, DiceCoefficient
+from ignite.contrib.metrics import ROC_AUC
+from ignite.contrib.handlers import ProgressBar
 from monai.transforms import AsDiscreted, Activations
 from monai.metrics import DiceMetric, compute_roc_auc
 from monai.handlers import (
@@ -15,6 +17,7 @@ from monai.handlers import (
     ValidationHandler,
     HausdorffDistance,
     ROCAUC,
+    ConfusionMatrix
 )
 from monai.transforms import (
     RandGaussianNoised
@@ -193,7 +196,7 @@ def train(cfg, model):
 
 
 def test(cfg, model):
-    """Perform evalutaion and save the segmentations 
+    """Perform evalutaion and save the segmentations
 
      Args:
         cfg (config file): Config file from model.
@@ -225,7 +228,8 @@ def test(cfg, model):
     ])
 
     val_handlers = [
-        StatsHandler(output_transform=lambda x: None),
+        ProgressBar(),
+        StatsHandler(name="evaluator", output_transform=lambda x: None),
         CheckpointLoader(load_path=cfg.trained_model_path,
                          load_dict={"model": model}),
         SegmentationSaver(
@@ -247,7 +251,12 @@ def test(cfg, model):
         },
         additional_metrics={
             "val_acc": Accuracy(output_transform=lambda x: (x["pred"], x["label"])),
-            # "val_auc": ROCAUC(to_onehot_y=True, softmax=True, output_transform=lambda x: (x["pred"], x["label"]))
+            "val_hausdorff_distance": HausdorffDistance(include_background=True, output_transform=lambda x: (x["pred"], x["label"])),
+            # "val_f1_score": ConfusionMatrix(include_background=True, metric_name="f1 score", output_transform=lambda x: (x["pred"], x["label"])),
+            # "auc": ROC_AUC(output_transform=lambda x: (x["pred"], x["label"])),
+            # "dice_coeff": DiceCoefficient(ConfusionMatrix(2, output_transform=_binary_one_hot_output_transform)),
+            # "val_auc": ROCAUC(to_onehot_y=True, softmax=True, output_transform=_activated_output_transform)
+
         },
         val_handlers=val_handlers,
         # if no FP16 support in GPU or PyTorch version < 1.6, will not enable AMP evaluation
@@ -255,6 +264,15 @@ def test(cfg, model):
     )
 
     evaluator.run()
+
+
+def _activated_output_transform(output):
+    y = output["label"]
+    y_pred = output["pred"]
+    y_pred = torch.sigmoid(y_pred).round().long()
+    y_pred = to_onehot(y_pred, 2)
+    y_pred = (y_pred.argmax(dim=1, keepdims=True)).float()
+    return y_pred, y
 
 
 if __name__ == "__main__":
