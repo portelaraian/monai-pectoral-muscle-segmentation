@@ -119,7 +119,6 @@ def train(cfg, model):
     val_files = [{keys[0]: img, keys[1]: seg}
                  for img, seg in zip(images[-n_val:], labels[-n_val:])]
 
-    # create a training data loader
     batch_size = cfg.batch_size
     log(f"Batch size: {batch_size}")
 
