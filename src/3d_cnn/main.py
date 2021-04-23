@@ -1,13 +1,15 @@
 import torch
+import numpy as np
 import torch.nn as nn
 from ignite.contrib.handlers import ProgressBar
 from monai.engines import SupervisedEvaluator
-from ignite.utils import setup_logger, to_onehot
+from ignite.utils import to_onehot
 from ignite.metrics import Accuracy, DiceCoefficient
 from ignite.contrib.metrics import ROC_AUC
 from ignite.contrib.handlers import ProgressBar
-from monai.transforms import AsDiscreted, Activations
-from monai.metrics import DiceMetric, compute_roc_auc
+from monai.inferers import sliding_window_inference
+from monai.transforms import AsDiscrete, Activations
+from monai.metrics import compute_hausdorff_distance, compute_meandice, compute_average_surface_distance
 from monai.handlers import (
     CheckpointSaver,
     CheckpointLoader,
@@ -16,13 +18,12 @@ from monai.handlers import (
     StatsHandler,
     ValidationHandler,
     HausdorffDistance,
-    ROCAUC,
-    ConfusionMatrix
 )
 from monai.transforms import (
     RandGaussianNoised
 )
-from monai.inferers import sliding_window_inference
+import pandas as pd
+import numpy as np
 import monai
 from utils.config import Config
 import glob
@@ -87,7 +88,8 @@ def main():
         train(cfg, model)
     elif cfg.mode == "test":
         log(f"Mode: {cfg.mode}")
-        test(cfg, model)
+        model.load_state_dict(torch.load(cfg.trained_model_path))
+        test_pytorch(cfg, model)
     else:
         raise ValueError("Unknown mode.")
 
@@ -195,7 +197,7 @@ def train(cfg, model):
     trainer.run()
 
 
-def test(cfg, model):
+def test_ignite(cfg, model):
     """Perform evalutaion and save the segmentations
 
      Args:
@@ -247,16 +249,11 @@ def test(cfg, model):
         inferer=factory.get_inferer(cfg.imgsize),
         post_transform=val_post_transforms,
         key_val_metric={
-            "val_mean_dice": MeanDice(include_background=True, output_transform=lambda x: (x["pred"], x["label"]))
+            "val_mean_dice": MeanDice(include_background=True, output_transform=lambda x: (x["pred"], x["label"])),
         },
         additional_metrics={
             "val_acc": Accuracy(output_transform=lambda x: (x["pred"], x["label"])),
             "val_hausdorff_distance": HausdorffDistance(include_background=True, output_transform=lambda x: (x["pred"], x["label"])),
-            # "val_f1_score": ConfusionMatrix(include_background=True, metric_name="f1 score", output_transform=lambda x: (x["pred"], x["label"])),
-            # "auc": ROC_AUC(output_transform=lambda x: (x["pred"], x["label"])),
-            # "dice_coeff": DiceCoefficient(ConfusionMatrix(2, output_transform=_binary_one_hot_output_transform)),
-            # "val_auc": ROCAUC(to_onehot_y=True, softmax=True, output_transform=_activated_output_transform)
-
         },
         val_handlers=val_handlers,
         # if no FP16 support in GPU or PyTorch version < 1.6, will not enable AMP evaluation
@@ -266,13 +263,120 @@ def test(cfg, model):
     evaluator.run()
 
 
-def _activated_output_transform(output):
-    y = output["label"]
-    y_pred = output["pred"]
-    y_pred = torch.sigmoid(y_pred).round().long()
-    y_pred = to_onehot(y_pred, 2)
-    y_pred = (y_pred.argmax(dim=1, keepdims=True)).float()
-    return y_pred, y
+def test_pytorch(cfg, model):
+    """Perform evalutaion and save the segmentations
+
+     Args:
+        cfg (config file): Config file from model.
+        model (torch model): Pytorch MONAI model.
+    """
+    images = sorted(glob.glob(
+        os.path.join(cfg.data.test.imgdir, "mri/*.nii.gz")))
+    labels = sorted(glob.glob(
+        os.path.join(cfg.data.test.imgdir, "masks/*.nii")))
+
+    log(f"Testing: image/label ({len(images)}/{len(labels)}) folder: {cfg.data.test.imgdir}")
+
+    test_files = [{"image": img, "label": seg}
+                  for img, seg in zip(images, labels)]
+    keys = ("image", "label")
+
+    # creating data loader
+    val_loader = factory.get_dataloader(
+        cfg.data.test, 'val',
+        keys, test_files, cfg.imgsize
+    )
+
+    inferer = factory.get_inferer(cfg.imgsize)
+    saver = monai.data.NiftiSaver(
+        output_dir=cfg.prediction_folder,
+        output_ext=".nii",
+        mode="nearest"
+    )
+
+    results = {
+        "id": [],
+        "spatial_size": [],
+        "dice": [],
+        "hausdorff_dist": [],
+        "avg_surface_dist": []
+    }
+
+    with torch.no_grad():
+        for infer_data in tqdm(val_loader):
+
+            # ID
+            results["id"].append(
+                infer_data["label_meta_dict"]["filename_or_obj"][0]
+            )
+
+            # Spatial size of the current tensor
+            results["spatial_size"].append(
+                infer_data["label_meta_dict"]["spatial_shape"][0].cpu().numpy()
+            )
+
+            preds = inferer(infer_data[keys[0]].to(DEVICE), model)
+            labels = infer_data[keys[1]].to(DEVICE)
+
+            n = 1.0
+            for _ in range(4):
+                # TTA
+                _img = RandGaussianNoised(
+                    keys[0],
+                    prob=1.0,
+                    std=0.01
+                )(infer_data)[keys[0]]
+
+                pred = inferer(_img.to(DEVICE), model)
+                preds = preds + pred
+                n = n + 1.0
+
+                for dims in [[2], [3]]:
+                    flip_pred = inferer(
+                        torch.flip(_img.to(DEVICE), dims=dims),
+                        model
+                    )
+                    pred = torch.flip(flip_pred, dims=dims)
+                    preds = preds + pred
+                    n = n + 1.0
+
+            preds = preds / n
+            preds = (preds.argmax(dim=1, keepdims=True)).float()
+
+            # Dice
+            results["dice"].append(
+                compute_meandice(
+                    y_pred=preds,
+                    y=labels
+                ).cpu().numpy()[0][0])
+
+            # Hausdorff distance
+            results["hausdorff_dist"].append(
+                compute_hausdorff_distance(
+                    y_pred=preds,
+                    y=labels,
+                    include_background=True
+                ).cpu().numpy()[0][0]
+            )
+
+            # Average surface distance
+            results["avg_surface_dist"].append(
+                compute_average_surface_distance(
+                    y_pred=preds,
+                    y=labels,
+                    include_background=True
+                ).cpu().numpy()[0][0]
+            )
+
+            # Save predictions (segmentations:  format)
+            saver.save_batch(preds, infer_data["image_meta_dict"])
+
+    results = pd.DataFrame(results)
+    print(results)
+
+    print(f"Mean-dice: {np.mean(results['dice'])}")
+    print(f"Mean-hausdorff: {np.mean(results['hausdorff'])}")
+    print(f"Average Surface Distance: {np.mean(results['ASD'])}")
 
 
 if __name__ == "__main__":
