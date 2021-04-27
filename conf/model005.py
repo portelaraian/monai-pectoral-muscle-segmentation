@@ -1,23 +1,18 @@
-workdir = './model/SegResNet_v3'
-seed = 9400
+workdir = './model/BasicUNet_v2'
+seed = 9300
 
 
 epochs = 1000
 amp = True
-batch_size = 8
+batch_size = 6
 num_workers = 4
 imgsize = (192, 192, 16)
 
-train_frac = 0.85
-val_frac = 0.15
+train_frac = 0.80
+val_frac = 0.2
 
-# Inferer
 prediction_folder = f"{workdir}/output"
 checkpoints = f"{workdir}/*.pt"
-trained_model_path = f"{workdir}/"
-
-sw_batch_size = 2
-
 
 loss = dict(
     name='DiceCELoss',
@@ -27,25 +22,20 @@ loss = dict(
 optimizer = dict(
     name='Adam',
     params=dict(
-        lr=0.0005,
+        lr=0.0002,
         betas=(0.9, 0.999),
         eps=1e-08,
     ),
 )
 
 model = dict(
-    name='SegResNet',
+    name='BasicUNet',
     params=dict(
-        spatial_dims=3,
-        init_filters=8,
+        dimensions=3,
         in_channels=1,
         out_channels=2,
-        dropout_prob=0.2,
-        norm_name='group',
-        num_groups=8,
-        use_conv_final=True,
-        blocks_down=(1, 2, 2, 4),
-        blocks_up=(1, 1, 1),
+        features=(32, 32, 64, 128, 256, 32),
+        dropout=0.2,
     ),
 )
 

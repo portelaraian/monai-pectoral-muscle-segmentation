@@ -1,5 +1,5 @@
-workdir = './model/SegResNet_v3'
-seed = 9400
+workdir = './model/SegResNet_v5'
+seed = 9233
 
 
 epochs = 1000
@@ -8,16 +8,11 @@ batch_size = 8
 num_workers = 4
 imgsize = (192, 192, 16)
 
-train_frac = 0.85
-val_frac = 0.15
+train_frac = 0.80
+val_frac = 0.2
 
-# Inferer
 prediction_folder = f"{workdir}/output"
 checkpoints = f"{workdir}/*.pt"
-trained_model_path = f"{workdir}/"
-
-sw_batch_size = 2
-
 
 loss = dict(
     name='DiceCELoss',
@@ -27,7 +22,7 @@ loss = dict(
 optimizer = dict(
     name='Adam',
     params=dict(
-        lr=0.0005,
+        lr=0.0002,
         betas=(0.9, 0.999),
         eps=1e-08,
     ),

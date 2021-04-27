@@ -4,6 +4,7 @@ import torch.nn as nn
 from ignite.contrib.handlers import ProgressBar
 from monai.engines import SupervisedEvaluator
 from ignite.utils import to_onehot
+from ignite.engine.events import Events
 from monai.transforms import AsDiscrete, Activations
 from monai.metrics import compute_hausdorff_distance, compute_meandice, compute_average_surface_distance
 from monai.handlers import (
@@ -16,7 +17,8 @@ from monai.handlers import (
     HausdorffDistance,
 )
 from monai.transforms import (
-    RandGaussianNoised
+    RandGaussianNoised,
+    AsDiscreted
 )
 import pandas as pd
 import numpy as np

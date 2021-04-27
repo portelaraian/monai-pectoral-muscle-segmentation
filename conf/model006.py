@@ -1,4 +1,4 @@
-workdir = './model/SegResNet_v3'
+workdir = './model/SegResNet_v6'
 seed = 9400
 
 
@@ -8,8 +8,8 @@ batch_size = 8
 num_workers = 4
 imgsize = (192, 192, 16)
 
-train_frac = 0.85
-val_frac = 0.15
+train_frac = 0.90
+val_frac = 0.10
 
 # Inferer
 prediction_folder = f"{workdir}/output"
@@ -60,7 +60,7 @@ scheduler = dict(
 
 data = dict(
     train=dict(
-        imgdir='./input/train/',
+        imgdir='./input/train/version_5',
         imgsize=imgsize,
         batch_size=batch_size,
         loader=dict(
@@ -71,7 +71,7 @@ data = dict(
     ),
 
     valid=dict(
-        imgdir='./input/train/',
+        imgdir='./input/train/version_5',
         imgsize=imgsize,
         batch_size=1,
         loader=dict(
