@@ -1,3 +1,4 @@
+model_id = "model001"
 workdir = './model/SegResNet_v2'
 seed = 333
 

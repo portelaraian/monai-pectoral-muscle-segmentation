@@ -4,10 +4,6 @@ import torch.nn as nn
 from ignite.contrib.handlers import ProgressBar
 from monai.engines import SupervisedEvaluator
 from ignite.utils import to_onehot
-from ignite.metrics import Accuracy, DiceCoefficient
-from ignite.contrib.metrics import ROC_AUC
-from ignite.contrib.handlers import ProgressBar
-from monai.inferers import sliding_window_inference
 from monai.transforms import AsDiscrete, Activations
 from monai.metrics import compute_hausdorff_distance, compute_meandice, compute_average_surface_distance
 from monai.handlers import (
@@ -29,7 +25,6 @@ from utils.config import Config
 import glob
 from utils.logger import logger, log
 import os
-import shutil
 import sys
 import argparse
 import factory
@@ -251,7 +246,6 @@ def test_ignite(cfg, model):
             "val_mean_dice": MeanDice(include_background=True, output_transform=lambda x: (x["pred"], x["label"])),
         },
         additional_metrics={
-            "val_acc": Accuracy(output_transform=lambda x: (x["pred"], x["label"])),
             "val_hausdorff_distance": HausdorffDistance(include_background=True, output_transform=lambda x: (x["pred"], x["label"])),
         },
         val_handlers=val_handlers,
@@ -368,7 +362,7 @@ def test_pytorch(cfg, model):
             )
 
             # Save predictions (segmentations:  format)
-            saver.save_batch(preds, infer_data["image_meta_dict"])
+            # saver.save_batch(preds, infer_data["image_meta_dict"])
 
     results = pd.DataFrame(results)
     print(results)
