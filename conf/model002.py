@@ -1,4 +1,5 @@
-workdir = './model/SegResNet_v3'
+model_id = "SegResNet_v3"
+workdir = './model/model002'
 seed = 9400
 
 
@@ -13,11 +14,6 @@ val_frac = 0.15
 
 # Inferer
 prediction_folder = f"{workdir}/output"
-checkpoints = f"{workdir}/*.pt"
-trained_model_path = f"{workdir}/"
-
-sw_batch_size = 2
-
 
 loss = dict(
     name='DiceCELoss',
