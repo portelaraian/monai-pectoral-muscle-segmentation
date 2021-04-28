@@ -23,8 +23,8 @@ from monai.transforms import (
 import pandas as pd
 import numpy as np
 import monai
-from utils.config import Config
 import glob
+from utils.config import Config
 from utils.logger import logger, log
 import os
 import sys
@@ -52,6 +52,8 @@ def get_args():
                         )
     parser.add_argument("config")
     parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument('--snapshot')
+    parser.add_argument('--output')
 
     return parser.parse_args()
 
@@ -67,6 +69,8 @@ def main():
 
     cfg.mode = args.mode
     cfg.gpu = args.gpu
+    cfg.snapshot = args.snapshot
+    cfg.output = args.output
 
     logger.setup(cfg.workdir, name='%s_model_%s_config' %
                  (cfg.mode, cfg.model.name))
@@ -83,10 +87,17 @@ def main():
     if cfg.mode == "train":
         log(f"Mode: {cfg.mode}")
         train(cfg, model)
+
     elif cfg.mode == "test":
         log(f"Mode: {cfg.mode}")
-        model.load_state_dict(torch.load(cfg.trained_model_path))
-        test_pytorch(cfg, model)
+        print(cfg.snapshot)
+        model.load_state_dict(torch.load(cfg.snapshot))
+        results = test_pytorch(cfg, model)
+
+        # save results into a csv file
+        results = pd.DataFrame(results)
+        results.to_csv(f"{cfg.prediction_folder}/results.csv", index=False)
+
     else:
         raise ValueError("Unknown mode.")
 
@@ -291,24 +302,18 @@ def test_pytorch(cfg, model):
 
     results = {
         "id": [],
-        "spatial_size": [],
-        "dice": [],
-        "hausdorff_dist": [],
-        "avg_surface_dist": []
+        "dice_score": [],
+        "hausdorff_distance": []
     }
 
     with torch.no_grad():
         for infer_data in tqdm(val_loader):
 
-            # ID
-            results["id"].append(
-                infer_data["label_meta_dict"]["filename_or_obj"][0]
-            )
-
-            # Spatial size of the current tensor
-            results["spatial_size"].append(
-                infer_data["label_meta_dict"]["spatial_shape"][0].cpu().numpy()
-            )
+            # current ID (filename of the current data)
+            curr_id = infer_data["label_meta_dict"]["filename_or_obj"][0]
+            curr_id = curr_id.split("/")[-1]
+            curr_id = f"{cfg.prediction_folder}/{curr_id}"
+            results["id"].append(curr_id)
 
             preds = inferer(infer_data[keys[0]].to(DEVICE), model)
             labels = infer_data[keys[1]].to(DEVICE)
@@ -338,15 +343,14 @@ def test_pytorch(cfg, model):
             preds = preds / n
             preds = (preds.argmax(dim=1, keepdims=True)).float()
 
-            # Dice
-            results["dice"].append(
+            # Computes Dice score and Hausdorff Distance metric from full size Tensor and collects average
+            results["dice_score"].append(
                 compute_meandice(
                     y_pred=preds,
                     y=labels
                 ).cpu().numpy()[0][0])
 
-            # Hausdorff distance
-            results["hausdorff_dist"].append(
+            results["hausdorff_distance"].append(
                 compute_hausdorff_distance(
                     y_pred=preds,
                     y=labels,
@@ -354,24 +358,10 @@ def test_pytorch(cfg, model):
                 ).cpu().numpy()[0][0]
             )
 
-            # Average surface distance
-            results["avg_surface_dist"].append(
-                compute_average_surface_distance(
-                    y_pred=preds,
-                    y=labels,
-                    include_background=True
-                ).cpu().numpy()[0][0]
-            )
+            # Save prediction masks (segmentations: .nii format)
+            saver.save_batch(preds, infer_data["image_meta_dict"])
 
-            # Save predictions (segmentations:  format)
-            # saver.save_batch(preds, infer_data["image_meta_dict"])
-
-    results = pd.DataFrame(results)
-    print(results)
-
-    print(f"Mean-dice: {np.mean(results['dice'])}")
-    print(f"Mean-hausdorff: {np.mean(results['hausdorff'])}")
-    print(f"Average Surface Distance: {np.mean(results['ASD'])}")
+    return results
 
 
 if __name__ == "__main__":
