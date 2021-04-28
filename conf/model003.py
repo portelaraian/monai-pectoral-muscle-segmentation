@@ -1,24 +1,27 @@
-model_id = "model001"
-workdir = './model/SegResNet_v2'
-seed = 333
+model_id = "SegResNet_v4"
+workdir = './model/model003'
+seed = 9400
 
 
-epochs = 500
+epochs = 1000
 amp = True
 batch_size = 4
 num_workers = 4
-imgsize = (320, 320, 16)
+imgsize = (192, 192, 16)
 
-train_frac = 0.8
-val_frac = 0.2
+train_frac = 0.85
+val_frac = 0.15
 
+# Inferer
 prediction_folder = f"{workdir}/output"
-checkpoints = f"{workdir}/*.pt"
-trained_model_path = f"{workdir}/model_key_metric=0.9104.pt"
 
 loss = dict(
     name='DiceCELoss',
-    params=dict(),
+    params=dict(
+        include_background=False,
+        to_onehot_y=True,
+        softmax=True,
+    ),
 )
 
 optimizer = dict(
@@ -27,7 +30,6 @@ optimizer = dict(
         lr=0.0005,
         betas=(0.9, 0.999),
         eps=1e-08,
-        weight_decay=0.00002,
     ),
 )
 
@@ -38,7 +40,7 @@ model = dict(
         init_filters=8,
         in_channels=1,
         out_channels=2,
-        dropout_prob=None,
+        dropout_prob=0.2,
         norm_name='group',
         num_groups=8,
         use_conv_final=True,

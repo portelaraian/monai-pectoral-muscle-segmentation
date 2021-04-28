@@ -21,7 +21,6 @@ from monai.transforms import (
     ScaleIntensityd,
 )
 from utils.logger import log
-from utils.lr_schedulers import DiceCELoss
 
 
 def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16)):
@@ -139,11 +138,8 @@ def get_loss(cfg):
         cfg (config file): Config file from model.
 
     Returns:
-        monai.losses: Returns a monai instance loss or a custom loss (if specified DiceCELoss).
+        monai.losses: Returns a monai instance loss.
     """
-    if cfg.loss.name == "DiceCELoss":
-        return DiceCELoss()
-
     try:
         return getattr(monai.losses, cfg.loss.name)(**cfg.loss.params)
     except:
