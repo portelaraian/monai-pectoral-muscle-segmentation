@@ -26,6 +26,7 @@ import monai
 import glob
 from utils.config import Config
 from utils.logger import logger, log
+from utils.util import split_data
 import os
 import sys
 import argparse
@@ -86,7 +87,7 @@ def main():
 
     if cfg.mode == "train":
         log(f"Mode: {cfg.mode}")
-        train(cfg, model)
+        train(cfg)
 
     elif cfg.mode == "test":
         log(f"Mode: {cfg.mode}")
@@ -102,7 +103,7 @@ def main():
         raise ValueError("Unknown mode.")
 
 
-def train(cfg, model):
+def train(cfg):
     """Run a training pipeline.
 
     Args:
@@ -118,19 +119,17 @@ def train(cfg, model):
     log(f"Training: image/label ({len(images)}) folder: {cfg.data.train.imgdir}")
 
     keys = ("image", "label")
-    train_frac, val_frac = cfg.train_frac, cfg.val_frac
-    n_train = int(train_frac * len(images)) + 1
-    n_val = min(len(images) - n_train, int(val_frac * len(images)))
-
-    log(f"Training: train {n_train} val {n_val}, folder: {cfg.data.train.imgdir}")
-
-    train_files = [{keys[0]: img, keys[1]: seg}
-                   for img, seg in zip(images[:n_train], labels[:n_train])]
-    val_files = [{keys[0]: img, keys[1]: seg}
-                 for img, seg in zip(images[-n_val:], labels[-n_val:])]
+    train_files, val_files = split_data(images, labels)
 
     batch_size = cfg.batch_size
     log(f"Batch size: {batch_size}")
+
+    num_models = 5
+    models = [_run_nn(cfg, train_files[idx], val_files[idx], keys, idx)
+              for idx in range(num_models)]
+
+
+def _run_nn(cfg, train_files, val_files, keys, index):
 
     # creating data loaders
     train_loader = factory.get_dataloader(
@@ -143,6 +142,7 @@ def train(cfg, model):
         keys, val_files, cfg.imgsize
     )
 
+    model = factory.get_model(cfg).to(DEVICE)
     optimizer = factory.get_optimizer(cfg, model.parameters())
     scheduler = factory.get_scheduler(cfg, optimizer, len(train_loader))
     criterion = factory.get_loss(cfg)
@@ -162,6 +162,7 @@ def train(cfg, model):
     val_handlers = [
         ProgressBar(),
         CheckpointSaver(save_dir=cfg.workdir,
+                        file_prefix=f"{cfg.model_id}_fold{index}",
                         save_dict={"model": model},
                         save_key_metric=True,
                         key_metric_n_saved=20),
@@ -199,9 +200,11 @@ def train(cfg, model):
         train_handlers=train_handlers,
         amp=cfg.amp,
     )
-    # _config_trainer_logging(cfg, trainer, cfg.model.name)
+
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
     trainer.run()
+
+    return model
 
 
 def test_ignite(cfg, model):

@@ -1,22 +1,19 @@
-model_id = "SegResNet_v4"
+model_id = "SegResNet_focalLoss"
 workdir = './model/model003'
 seed = 9400
 
 
-epochs = 1000
+epochs = 2
 amp = True
 batch_size = 4
 num_workers = 4
 imgsize = (192, 192, 16)
 
-train_frac = 0.85
-val_frac = 0.15
-
 # Inferer
 prediction_folder = f"{workdir}/output"
 
 loss = dict(
-    name='DiceCELoss',
+    name='DiceFocalLoss',
     params=dict(
         include_background=False,
         to_onehot_y=True,
