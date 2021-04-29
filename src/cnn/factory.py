@@ -115,6 +115,8 @@ def get_dataloader(cfg, mode, keys, data, img_size):
         pin_memory=torch.cuda.is_available(),
     )
 
+    return loaders
+
 
 def get_model(cfg):
     """Instantiates the model.  
