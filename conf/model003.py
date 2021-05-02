@@ -11,11 +11,13 @@ imgsize = (192, 192, 16)
 
 # Inferer
 prediction_folder = f"{workdir}/output"
+checkpoints = f"{workdir}/*.pt"
+ensemble_evaluate = True
 
 loss = dict(
     name='DiceFocalLoss',
     params=dict(
-        include_background=False,
+        include_background=True,
         to_onehot_y=True,
         softmax=True,
     ),

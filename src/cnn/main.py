@@ -15,10 +15,13 @@ from monai.handlers import (
     StatsHandler,
     ValidationHandler,
     HausdorffDistance,
+    StatsHandler,
+    MetricsSaver
 )
 from monai.transforms import (
     RandGaussianNoised,
-    AsDiscreted
+    AsDiscreted,
+    MeanEnsembled
 )
 import pandas as pd
 import numpy as np
@@ -29,6 +32,7 @@ from utils.logger import logger, log
 from utils.util import split_data
 import os
 import sys
+from pathlib import Path
 import argparse
 import factory
 from tqdm import tqdm
@@ -91,13 +95,20 @@ def main():
 
     elif cfg.mode == "test":
         log(f"Mode: {cfg.mode}")
-        print(cfg.snapshot)
-        model.load_state_dict(torch.load(cfg.snapshot))
-        results = test_pytorch(cfg, model)
+        # model.load_state_dict(torch.load(cfg.snapshot))
+        test(cfg, model)
+        '''results = test(cfg, model)
 
         # save results into a csv file
+        out_path = Path(f"{cfg.prediction_folder}/results.csv")
         results = pd.DataFrame(results)
-        results.to_csv(f"{cfg.prediction_folder}/results.csv", index=False)
+
+        if out_path.is_file():
+            results.to_csv(out_path, mode="a", header=False, index=False)
+        else:
+            results.to_csv(out_path, index=False)
+
+        log("saved results to: {}".format(out_path))'''
 
     else:
         raise ValueError("Unknown mode.")
@@ -207,72 +218,7 @@ def _run_nn(cfg, train_files, val_files, keys, index):
     return model
 
 
-def test_ignite(cfg, model):
-    """Perform evalutaion and save the segmentations
-
-     Args:
-        cfg (config file): Config file from model.
-        model (torch model): Pytorch MONAI model.
-    """
-    images = sorted(glob.glob(
-        os.path.join(cfg.data.test.imgdir, "mri/*.nii.gz")))
-    labels = sorted(glob.glob(
-        os.path.join(cfg.data.test.imgdir, "masks/*.nii")))
-
-    log(f"Testing: image/label ({len(images)}/{len(labels)}) folder: {cfg.data.test.imgdir}")
-
-    test_files = [{"image": img, "label": seg}
-                  for img, seg in zip(images, labels)]
-    keys = ("image", "label")
-
-    # creating data loaders
-    val_loader = factory.get_dataloader(
-        cfg.data.test, 'val',
-        keys, test_files, cfg.imgsize
-    )
-
-    # create evaluator (to be used to measure model quality during training)
-    val_post_transforms = monai.transforms.Compose([
-        AsDiscreted(keys=("pred", "label"),
-                    argmax=(True, False),
-                    to_onehot=True,
-                    n_classes=2)
-    ])
-
-    val_handlers = [
-        ProgressBar(),
-        StatsHandler(name="evaluator", output_transform=lambda x: None),
-        CheckpointLoader(load_path=cfg.trained_model_path,
-                         load_dict={"model": model}),
-        SegmentationSaver(
-            output_dir=cfg.prediction_folder,
-            output_ext=".nii",
-            batch_transform=lambda batch: batch["image_meta_dict"],
-            output_transform=lambda output: output["pred"],
-        ),
-    ]
-
-    evaluator = SupervisedEvaluator(
-        device=DEVICE,
-        val_data_loader=val_loader,
-        network=model,
-        inferer=factory.get_inferer(cfg.imgsize),
-        post_transform=val_post_transforms,
-        key_val_metric={
-            "val_mean_dice": MeanDice(include_background=True, output_transform=lambda x: (x["pred"], x["label"])),
-        },
-        additional_metrics={
-            "val_hausdorff_distance": HausdorffDistance(include_background=True, output_transform=lambda x: (x["pred"], x["label"])),
-        },
-        val_handlers=val_handlers,
-        # if no FP16 support in GPU or PyTorch version < 1.6, will not enable AMP evaluation
-        amp=cfg.amp,
-    )
-
-    evaluator.run()
-
-
-def test_pytorch(cfg, model):
+def test(cfg, model):
     """Perform evalutaion and save the segmentations
 
      Args:
@@ -296,15 +242,50 @@ def test_pytorch(cfg, model):
         keys, test_files, cfg.imgsize
     )
 
+    if cfg.ensemble_evaluate:
+        model_paths = glob.glob(cfg.checkpoints)
+        models = []
+
+        for model_path in model_paths:
+            model = factory.get_model(cfg).to(DEVICE)
+            model.load_state_dict(torch.load(model_path))
+            models.append(model)
+
+        mean_post_transforms = monai.transforms.Compose(
+            [
+                MeanEnsembled(
+                    keys=["pred0", "pred1", "pred2", "pred3", "pred4"],
+                    output_key="pred",
+                    # in this particular example, we use validation metrics as weights
+                    weights=[0.95, 0.94, 0.95, 0.94, 0.90],
+                ),
+                AsDiscreted(keys=("pred", "label"),
+                            argmax=(True, False),
+                            to_onehot=True,
+                            n_classes=2)
+            ]
+        )
+
+        ensemble_evaluate(
+            cfg,
+            mean_post_transforms,
+            val_loader,
+            models
+        )
+
+        return
+
     inferer = factory.get_inferer(cfg.imgsize)
     saver = monai.data.NiftiSaver(
         output_dir=cfg.prediction_folder,
         output_ext=".nii",
+        output_postfix=cfg.model_id,
         mode="nearest"
     )
 
     results = {
         "id": [],
+        "model_id": [],
         "dice_score": [],
         "hausdorff_distance": []
     }
@@ -316,6 +297,8 @@ def test_pytorch(cfg, model):
             curr_id = infer_data["label_meta_dict"]["filename_or_obj"][0]
             curr_id = curr_id.split("/")[-1]
             curr_id = f"{cfg.prediction_folder}/{curr_id}"
+
+            results["model_id"].append(cfg.snapshot)
             results["id"].append(curr_id)
 
             preds = inferer(infer_data[keys[0]].to(DEVICE), model)
@@ -350,21 +333,74 @@ def test_pytorch(cfg, model):
             results["dice_score"].append(
                 compute_meandice(
                     y_pred=preds,
-                    y=labels
+                    y=labels,
+                    include_background=False
                 ).cpu().numpy()[0][0])
 
             results["hausdorff_distance"].append(
                 compute_hausdorff_distance(
                     y_pred=preds,
                     y=labels,
-                    include_background=True
+                    include_background=False
                 ).cpu().numpy()[0][0]
             )
 
             # Save prediction masks (segmentations: .nii format)
             saver.save_batch(preds, infer_data["image_meta_dict"])
 
+    # Log metrics
+    log(
+        f"Mean hausdorff distance: {np.mean(results['hausdorff_distance'])}"
+    )
+    log(f"Mean dice: {np.mean(results['dice_score'])}")
+
     return results
+
+
+def ensemble_evaluate(cfg, post_transforms, loader, models):
+
+    evaluator = monai.engines.EnsembleEvaluator(
+        device=DEVICE,
+        val_data_loader=loader,
+        pred_keys=["pred0", "pred1", "pred2", "pred3", "pred4"],
+        networks=models,
+        inferer=factory.get_inferer(cfg.imgsize),
+        post_transform=post_transforms,
+        key_val_metric={
+            "test_mean_dice": MeanDice(
+                include_background=False,
+                output_transform=lambda x: (x["pred"], x["label"]),
+            )
+        },
+    )
+
+    val_stats_handler = StatsHandler(
+        name="evaluator",
+        # no need to print loss value, so disable per iteration output
+        output_transform=lambda x: None,
+    )
+    val_stats_handler.attach(evaluator)
+
+    # convert the necessary metadata from batch data
+    SegmentationSaver(
+        output_dir=cfg.prediction_folder,
+        output_ext=".nii",
+        output_postfix=cfg.model_id,
+        name="evaluator",
+        mode="nearest",
+        batch_transform=lambda batch: batch["image_meta_dict"],
+        output_transform=lambda output: output["pred"],
+    ).attach(evaluator)
+
+    MetricsSaver(
+        save_dir=cfg.prediction_folder,
+        delimiter=",",
+        metric_details="*",
+        batch_transform=lambda batch: batch["image_meta_dict"],
+
+    ).attach(evaluator)
+
+    evaluator.run()
 
 
 if __name__ == "__main__":
