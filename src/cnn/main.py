@@ -43,7 +43,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def get_args():
-    """Parse the arguments
+    """Parse the arguments.
 
     Returns:
         parser: parser containing the parameters.
@@ -85,8 +85,6 @@ def main():
     monai.config.print_config()
     monai.utils.set_determinism(seed=cfg.seed)
 
-    model = factory.get_model(cfg).to(DEVICE)
-
     log(f"Model: {cfg.model.name}")
 
     if cfg.mode == "train":
@@ -95,20 +93,7 @@ def main():
 
     elif cfg.mode == "test":
         log(f"Mode: {cfg.mode}")
-        # model.load_state_dict(torch.load(cfg.snapshot))
-        test(cfg, model)
-        '''results = test(cfg, model)
-
-        # save results into a csv file
-        out_path = Path(f"{cfg.prediction_folder}/results.csv")
-        results = pd.DataFrame(results)
-
-        if out_path.is_file():
-            results.to_csv(out_path, mode="a", header=False, index=False)
-        else:
-            results.to_csv(out_path, index=False)
-
-        log("saved results to: {}".format(out_path))'''
+        test(cfg)
 
     else:
         raise ValueError("Unknown mode.")
@@ -119,7 +104,6 @@ def train(cfg):
 
     Args:
         cfg (config file): Config file from model.
-        model (torch model): Pytorch MONAI model.
     """
 
     images = sorted(glob.glob(
@@ -141,6 +125,18 @@ def train(cfg):
 
 
 def _run_nn(cfg, train_files, val_files, keys, index):
+    """Run the deep cnn model.
+
+    Args:
+        cfg (config file): Config file from model.
+        train_files (list): list containing paired dict train files.
+        val_files (list): list containing paired dict val files.
+        keys (tuple): dictionary keys used. E.g. ("image", "label").
+        index (int): index indicating the fold index.
+
+    Returns:
+        torch model: returns a trained model 
+    """
 
     # creating data loaders
     train_loader = factory.get_dataloader(
@@ -218,12 +214,11 @@ def _run_nn(cfg, train_files, val_files, keys, index):
     return model
 
 
-def test(cfg, model):
-    """Perform evalutaion and save the segmentations
+def test(cfg):
+    """Perform evalutaion and save the segmentations.
 
      Args:
         cfg (config file): Config file from model.
-        model (torch model): Pytorch MONAI model.
     """
     images = sorted(glob.glob(
         os.path.join(cfg.data.test.imgdir, "mri/*.nii.gz")))
@@ -257,7 +252,7 @@ def test(cfg, model):
                     keys=["pred0", "pred1", "pred2", "pred3", "pred4"],
                     output_key="pred",
                     # in this particular example, we use validation metrics as weights
-                    weights=[0.95, 0.94, 0.95, 0.94, 0.90],
+                    #weights=[0.95, 0.94, 0.95, 0.94, 0.90],
                 ),
                 AsDiscreted(keys=("pred", "label"),
                             argmax=(True, False),
@@ -273,92 +268,16 @@ def test(cfg, model):
             models
         )
 
-        return
-
-    inferer = factory.get_inferer(cfg.imgsize)
-    saver = monai.data.NiftiSaver(
-        output_dir=cfg.prediction_folder,
-        output_ext=".nii",
-        output_postfix=cfg.model_id,
-        mode="nearest"
-    )
-
-    results = {
-        "id": [],
-        "model_id": [],
-        "dice_score": [],
-        "hausdorff_distance": []
-    }
-
-    with torch.no_grad():
-        for infer_data in tqdm(val_loader):
-
-            # current ID (filename of the current data)
-            curr_id = infer_data["label_meta_dict"]["filename_or_obj"][0]
-            curr_id = curr_id.split("/")[-1]
-            curr_id = f"{cfg.prediction_folder}/{curr_id}"
-
-            results["model_id"].append(cfg.snapshot)
-            results["id"].append(curr_id)
-
-            preds = inferer(infer_data[keys[0]].to(DEVICE), model)
-            labels = infer_data[keys[1]].to(DEVICE)
-
-            n = 1.0
-            for _ in range(4):
-                # TTA
-                _img = RandGaussianNoised(
-                    keys[0],
-                    prob=1.0,
-                    std=0.01
-                )(infer_data)[keys[0]]
-
-                pred = inferer(_img.to(DEVICE), model)
-                preds = preds + pred
-                n = n + 1.0
-
-                for dims in [[2], [3]]:
-                    flip_pred = inferer(
-                        torch.flip(_img.to(DEVICE), dims=dims),
-                        model
-                    )
-                    pred = torch.flip(flip_pred, dims=dims)
-                    preds = preds + pred
-                    n = n + 1.0
-
-            preds = preds / n
-            preds = (preds.argmax(dim=1, keepdims=True)).float()
-
-            # Computes Dice score and Hausdorff Distance metric from full size Tensor and collects average
-            results["dice_score"].append(
-                compute_meandice(
-                    y_pred=preds,
-                    y=labels,
-                    include_background=False
-                ).cpu().numpy()[0][0])
-
-            results["hausdorff_distance"].append(
-                compute_hausdorff_distance(
-                    y_pred=preds,
-                    y=labels,
-                    include_background=False
-                ).cpu().numpy()[0][0]
-            )
-
-            # Save prediction masks (segmentations: .nii format)
-            saver.save_batch(preds, infer_data["image_meta_dict"])
-
-    # Log metrics
-    log(
-        f"Mean hausdorff distance: {np.mean(results['hausdorff_distance'])}"
-    )
-    log(f"Mean dice: {np.mean(results['dice_score'])}")
-
-    return results
-
 
 def ensemble_evaluate(cfg, post_transforms, loader, models):
+    """Ensemble method for evaluation.
 
+    Args:
+        cfg (config file): Config file from model.
+        post_transforms (transforms): MONAI transforms.
+        loader (DataLoader): torch test DataLoader.
+        models ([list]): list of models with its respective checkpoints.
+    """
     evaluator = monai.engines.EnsembleEvaluator(
         device=DEVICE,
         val_data_loader=loader,
@@ -372,6 +291,13 @@ def ensemble_evaluate(cfg, post_transforms, loader, models):
                 output_transform=lambda x: (x["pred"], x["label"]),
             )
         },
+        additional_metrics={
+            "test_hausdorff": HausdorffDistance(
+                include_background=False,
+                output_transform=lambda x: (x["pred"], x["label"])
+            )
+        },
+        amp=True,
     )
 
     val_stats_handler = StatsHandler(
