@@ -1,11 +1,11 @@
 model_id = "SegResNet_focalLoss"
 workdir = './model/model003'
-seed = 9400
+seed = 949
 
 
-epochs = 2
+epochs = 1000
 amp = True
-batch_size = 4
+batch_size = 8
 num_workers = 4
 imgsize = (192, 192, 16)
 
@@ -27,6 +27,7 @@ optimizer = dict(
         lr=0.0005,
         betas=(0.9, 0.999),
         eps=1e-08,
+        weight_decay=0.00002
     ),
 )
 
@@ -57,7 +58,7 @@ scheduler = dict(
 
 data = dict(
     train=dict(
-        imgdir='./input/train/',
+        imgdir='./input/train/version_3',
         imgsize=imgsize,
         batch_size=batch_size,
         loader=dict(
@@ -68,7 +69,7 @@ data = dict(
     ),
 
     valid=dict(
-        imgdir='./input/train/',
+        imgdir='./input/train/version_3',
         imgsize=imgsize,
         batch_size=1,
         loader=dict(

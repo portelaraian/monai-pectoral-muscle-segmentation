@@ -19,6 +19,7 @@ from monai.transforms import (
     SpatialPadd,
     ToTensord,
     ScaleIntensityd,
+    Zoomd
 )
 from utils.logger import log
 
@@ -61,10 +62,11 @@ def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16)):
                 RandCropByPosNegLabeld(keys, label_key=keys[1],
                                        spatial_size=img_size,
                                        num_samples=4),
-                RandGaussianNoised(keys[0], prob=0.20, std=0.01),
+                RandGaussianNoised(keys[0], prob=0.3, std=0.01),
                 RandFlipd(keys, spatial_axis=0, prob=0.5),
                 RandFlipd(keys, spatial_axis=1, prob=0.5),
                 RandFlipd(keys, spatial_axis=2, prob=0.5),
+                
             ]
         )
 
