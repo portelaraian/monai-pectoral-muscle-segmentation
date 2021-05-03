@@ -66,7 +66,7 @@ def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16)):
                 RandFlipd(keys, spatial_axis=0, prob=0.5),
                 RandFlipd(keys, spatial_axis=1, prob=0.5),
                 RandFlipd(keys, spatial_axis=2, prob=0.5),
-                
+
             ]
         )
 
@@ -164,8 +164,6 @@ def get_optimizer(cfg, parameters):
     """
     optimizer = getattr(torch.optim, cfg.optimizer.name)(
         parameters, **cfg.optimizer.params)
-
-    log(f'optim: {cfg.optimizer.name}')
 
     return optimizer
 
