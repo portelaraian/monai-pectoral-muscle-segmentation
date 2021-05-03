@@ -29,7 +29,7 @@ import monai
 import glob
 from utils.config import Config
 from utils.logger import logger, log
-from utils.util import split_data
+from utils.util import SplitDataset
 import os
 import sys
 from pathlib import Path
@@ -106,37 +106,48 @@ def train(cfg):
         cfg (config file): Config file from model.
     """
 
-    images = sorted(glob.glob(
-        os.path.join(cfg.data.train.imgdir, "mri/*.nii.gz")))
-    labels = sorted(glob.glob(
-        os.path.join(cfg.data.train.imgdir, "masks/*.nii")))
+    data = sorted(glob.glob(os.path.join(
+        cfg.data.train.imgdir, "mri/*.nii.gz")))
 
-    log(f"Training: image/label ({len(images)}) folder: {cfg.data.train.imgdir}")
+    log(f"Training: image/label ({len(data)}) folder: {cfg.data.train.imgdir}")
 
     keys = ("image", "label")
-    train_files, val_files = split_data(images, labels)
+
+    # split dataset
+    dataset_splitted = SplitDataset(data, cfg.seed)
 
     batch_size = cfg.batch_size
     log(f"Batch size: {batch_size}")
 
     num_models = 5
-    models = [_run_nn(cfg, train_files[idx], val_files[idx], keys, idx)
+    models = [_run_nn(cfg, dataset_splitted, keys, idx)
               for idx in range(num_models)]
 
 
-def _run_nn(cfg, train_files, val_files, keys, index):
+def _run_nn(cfg, dataset_splitted, keys, index):
     """Run the deep cnn model.
 
     Args:
         cfg (config file): Config file from model.
-        train_files (list): list containing paired dict train files.
-        val_files (list): list containing paired dict val files.
+        dataset_splitted (list): list of the dataset splitted into n_folds.
         keys (tuple): dictionary keys used. E.g. ("image", "label").
         index (int): index indicating the fold index.
 
     Returns:
         torch model: returns a trained model 
     """
+    log("")
+    log("#"*33)
+    log(f"## Started to train on fold: {index} ##")
+    log("#"*33)
+
+    train_files, val_files = dataset_splitted.get_data(
+        current_fold=index,
+        keys=keys,
+        path_to_masks_dir=os.path.join(cfg.data.valid.imgdir, "masks"),
+    )
+
+    log(f"Train files: {len(train_files)} | Val files: {len(val_files)}")
 
     # creating data loaders
     train_loader = factory.get_dataloader(

@@ -9,4 +9,3 @@ train() {
 }
 
 train model004
-train model003
