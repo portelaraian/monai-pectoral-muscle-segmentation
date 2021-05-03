@@ -1,23 +1,22 @@
-model_id = "SegResNet_focalLoss"
+model_id = "SegResNet_focalLoss_192dim"
 workdir = './model/model003'
 seed = 949
 
 
 epochs = 1000
 amp = True
-batch_size = 8
+batch_size = 4
 num_workers = 4
 imgsize = (192, 192, 16)
 
 # Inferer
 prediction_folder = f"{workdir}/output"
 checkpoints = f"{workdir}/*.pt"
-ensemble_evaluate = True
 
 loss = dict(
     name='DiceFocalLoss',
     params=dict(
-        include_background=True,
+        include_background=False,
         to_onehot_y=True,
         softmax=True,
     ),

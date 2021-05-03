@@ -172,7 +172,7 @@ def _run_nn(cfg, train_files, val_files, keys, index):
                         file_prefix=f"{cfg.model_id}_fold{index}",
                         save_dict={"model": model},
                         save_key_metric=True,
-                        key_metric_n_saved=20),
+                        key_metric_n_saved=5),
     ]
 
     evaluator = monai.engines.SupervisedEvaluator(
