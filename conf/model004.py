@@ -58,7 +58,7 @@ scheduler = dict(
 
 data = dict(
     train=dict(
-        imgdir='./input/train',
+        imgdir='./input/train/version_3',
         imgsize=imgsize,
         batch_size=batch_size,
         loader=dict(
@@ -69,7 +69,7 @@ data = dict(
     ),
 
     valid=dict(
-        imgdir='./input/train',
+        imgdir='./input/train/version_3',
         imgsize=imgsize,
         batch_size=1,
         loader=dict(

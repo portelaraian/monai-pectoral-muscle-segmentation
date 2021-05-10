@@ -342,6 +342,7 @@ def ensemble_evaluate(cfg, post_transforms, loader, models):
 
 if __name__ == "__main__":
     torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.enabled = False
     log(torch.backends.cudnn.benchmark)
 
     torch.cuda.empty_cache()
