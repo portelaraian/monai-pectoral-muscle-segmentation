@@ -134,7 +134,7 @@ def _run_nn(cfg, dataset_splitted, keys, index):
         index (int): index indicating the fold index.
 
     Returns:
-        torch model: returns a trained model 
+        torch model: returns a trained model
     """
     log("")
     log("#"*33)
@@ -248,36 +248,35 @@ def test(cfg):
         keys, test_files, cfg.imgsize
     )
 
-    if cfg.ensemble_evaluate:
-        model_paths = glob.glob(cfg.checkpoints)
-        models = []
+    model_paths = glob.glob(cfg.checkpoints)
+    models = []
 
-        for model_path in model_paths:
-            model = factory.get_model(cfg).to(DEVICE)
-            model.load_state_dict(torch.load(model_path))
-            models.append(model)
+    for model_path in model_paths:
+        model = factory.get_model(cfg).to(DEVICE)
+        model.load_state_dict(torch.load(model_path))
+        models.append(model)
 
-        mean_post_transforms = monai.transforms.Compose(
-            [
-                MeanEnsembled(
-                    keys=["pred0", "pred1", "pred2", "pred3", "pred4"],
-                    output_key="pred",
-                    # in this particular example, we use validation metrics as weights
-                    #weights=[0.95, 0.94, 0.95, 0.94, 0.90],
-                ),
-                AsDiscreted(keys=("pred", "label"),
-                            argmax=(True, False),
-                            to_onehot=True,
-                            n_classes=2)
-            ]
-        )
+    mean_post_transforms = monai.transforms.Compose(
+        [
+            MeanEnsembled(
+                keys=["pred0", "pred1", "pred2", "pred3", "pred4"],
+                output_key="pred",
+                # in this particular example, we use validation metrics as weights
+                #weights=[0.95, 0.94, 0.95, 0.94, 0.90],
+            ),
+            AsDiscreted(keys=("pred", "label"),
+                        argmax=(True, False),
+                        to_onehot=True,
+                        n_classes=2)
+        ]
+    )
 
-        ensemble_evaluate(
-            cfg,
-            mean_post_transforms,
-            val_loader,
-            models
-        )
+    ensemble_evaluate(
+        cfg,
+        mean_post_transforms,
+        val_loader,
+        models
+    )
 
 
 def ensemble_evaluate(cfg, post_transforms, loader, models):
