@@ -1,23 +1,28 @@
-model_id = "SegResNet_v3"
-workdir = './model/model002'
+model_id = "SegResNet_DiceFocalLoss_dim320"
+workdir = './model/model006'
 seed = 9400
 
 
 epochs = 1000
 amp = True
-batch_size = 8
+batch_size = 2
 num_workers = 4
-imgsize = (192, 192, 16)
+imgsize = (320, 320, 16)
 
-train_frac = 0.85
-val_frac = 0.15
+# train_frac = 0.85
+# val_frac = 0.15
 
 # Inferer
 prediction_folder = f"{workdir}/output"
+checkpoints = f"{workdir}/*.pt"
 
 loss = dict(
-    name='DiceCELoss',
-    params=dict(),
+    name='DiceFocalLoss',
+    params=dict(
+        include_background=False,
+        to_onehot_y=True,
+        softmax=True,
+    ),
 )
 
 optimizer = dict(
@@ -56,7 +61,7 @@ scheduler = dict(
 
 data = dict(
     train=dict(
-        imgdir='./input/train/',
+        imgdir='./input/train/version_3',
         imgsize=imgsize,
         batch_size=batch_size,
         loader=dict(
@@ -67,7 +72,7 @@ data = dict(
     ),
 
     valid=dict(
-        imgdir='./input/train/',
+        imgdir='./input/train/version_3',
         imgsize=imgsize,
         batch_size=1,
         loader=dict(

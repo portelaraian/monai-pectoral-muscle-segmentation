@@ -15,14 +15,14 @@ class SplitDataset():
         )
 
     def get_data(self, current_fold, keys, path_to_masks_dir):
-        """[summary]
+        """Get the data and run kfold.
 
         Args:
             data (data splitted): list returned from split_data function.
             current_fold (int): interger indicating the current fold.
 
         Returns:
-            : [description]
+            list: list containing dictionary paired data separated into folds. 
         """
         folds = [fold for fold in range(5) if fold != current_fold]
 
