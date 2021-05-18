@@ -1,15 +1,15 @@
+import os
+import sys
+import argparse
+import glob
+
 import torch
-import numpy as np
-import torch.nn as nn
 from ignite.contrib.handlers import ProgressBar
-from monai.engines import SupervisedEvaluator
-from ignite.utils import to_onehot
 from ignite.engine.events import Events
-from monai.transforms import AsDiscrete, Activations
-from monai.metrics import compute_hausdorff_distance, compute_meandice, compute_average_surface_distance
+
+import monai
 from monai.handlers import (
     CheckpointSaver,
-    CheckpointLoader,
     SegmentationSaver,
     MeanDice,
     StatsHandler,
@@ -19,23 +19,16 @@ from monai.handlers import (
     MetricsSaver
 )
 from monai.transforms import (
-    RandGaussianNoised,
     AsDiscreted,
     MeanEnsembled
 )
-import pandas as pd
-import numpy as np
-import monai
-import glob
+
 from utils.config import Config
 from utils.logger import logger, log
 from utils.util import SplitDataset
-import os
-import sys
-from pathlib import Path
-import argparse
+
+
 import factory
-from tqdm import tqdm
 sys.path.append(os.path.abspath(os.path.join("./")))
 
 
@@ -86,13 +79,12 @@ def main():
     monai.utils.set_determinism(seed=cfg.seed)
 
     log(f"Model: {cfg.model.name}")
+    log(f"Mode: {cfg.mode}")
 
     if cfg.mode == "train":
-        log(f"Mode: {cfg.mode}")
         train(cfg)
 
     elif cfg.mode == "test":
-        log(f"Mode: {cfg.mode}")
         test(cfg)
 
     else:
@@ -120,11 +112,10 @@ def train(cfg):
     log(f"Batch size: {batch_size}")
 
     num_models = 5
-    models = [_run_nn(cfg, dataset_splitted, keys, idx)
-              for idx in range(num_models)]
+    [run_nn(cfg, dataset_splitted, keys, idx) for idx in range(num_models)]
 
 
-def _run_nn(cfg, dataset_splitted, keys, index):
+def run_nn(cfg, dataset_splitted, keys, index):
     """Run the deep cnn model.
 
     Args:
@@ -256,12 +247,13 @@ def test(cfg):
         model.load_state_dict(torch.load(model_path))
         models.append(model)
 
+    pred_keys = [f"pred{idx}" for idx in range(len(models))]
+
     mean_post_transforms = monai.transforms.Compose(
         [
             MeanEnsembled(
-                keys=["pred0", "pred1", "pred2", "pred3", "pred4"],
+                keys=pred_keys,
                 output_key="pred",
-                # in this particular example, we use validation metrics as weights
                 #weights=[0.95, 0.94, 0.95, 0.94, 0.90],
             ),
             AsDiscreted(keys=("pred", "label"),
@@ -275,23 +267,25 @@ def test(cfg):
         cfg,
         mean_post_transforms,
         val_loader,
-        models
+        models,
+        pred_keys
     )
 
 
-def ensemble_evaluate(cfg, post_transforms, loader, models):
+def ensemble_evaluate(cfg, post_transforms, loader, models, pred_keys):
     """Ensemble method for evaluation.
 
     Args:
         cfg (config file): Config file from model.
         post_transforms (transforms): MONAI transforms.
         loader (DataLoader): torch test DataLoader.
-        models ([list]): list of models with its respective checkpoints.
+        models (list): list of models with its respective checkpoints.
+        pred_keys (list): list containing pred keys (e.g. ["pred1", "pred2", ..., "predn"]).
     """
     evaluator = monai.engines.EnsembleEvaluator(
         device=DEVICE,
         val_data_loader=loader,
-        pred_keys=["pred0", "pred1", "pred2", "pred3", "pred4"],
+        pred_keys=pred_keys,
         networks=models,
         inferer=factory.get_inferer(cfg.imgsize),
         post_transform=post_transforms,
