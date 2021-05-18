@@ -16,7 +16,9 @@ from monai.handlers import (
     ValidationHandler,
     HausdorffDistance,
     StatsHandler,
-    MetricsSaver
+    MetricsSaver,
+    TensorBoardImageHandler,
+    TensorBoardStatsHandler,
 )
 from monai.transforms import (
     AsDiscreted,
@@ -170,11 +172,19 @@ def run_nn(cfg, dataset_splitted, keys, index):
 
     val_handlers = [
         ProgressBar(),
+        StatsHandler(output_transform=lambda x: None),
         CheckpointSaver(save_dir=cfg.workdir,
                         file_prefix=f"{cfg.model_id}_fold{index}",
                         save_dict={"model": model},
                         save_key_metric=True,
                         key_metric_n_saved=5),
+        TensorBoardStatsHandler(log_dir=cfg.log_dir,
+                                output_transform=lambda x: None),
+        TensorBoardImageHandler(
+            log_dir=cfg.log_dir,
+            batch_transform=lambda x: (x["image"], x["label"]),
+            output_transform=lambda x: x["pred"],
+        ),
     ]
 
     evaluator = monai.engines.SupervisedEvaluator(
@@ -192,9 +202,17 @@ def run_nn(cfg, dataset_splitted, keys, index):
 
     # evaluator as an event handler of the trainer
     train_handlers = [
+        ProgressBar(),
         ValidationHandler(validator=evaluator, interval=1, epoch_level=True),
-        StatsHandler(tag_name="train_loss",
-                     output_transform=lambda x: x["loss"]),
+        StatsHandler(
+            tag_name="train_loss",
+            output_transform=lambda x: x["loss"]
+        ),
+        TensorBoardStatsHandler(
+            log_dir=cfg.log_dir,
+            tag_name="train_loss",
+            output_transform=lambda x: x["loss"]
+        ),
     ]
 
     trainer = monai.engines.SupervisedTrainer(
@@ -247,6 +265,7 @@ def test(cfg):
         model.load_state_dict(torch.load(model_path))
         models.append(model)
 
+    log(f"Total models: {len(models)}")
     pred_keys = [f"pred{idx}" for idx in range(len(models))]
 
     mean_post_transforms = monai.transforms.Compose(

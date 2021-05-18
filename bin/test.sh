@@ -15,3 +15,5 @@ test() {
 #test model003
 #test model004
 #test model006
+#test model007
+#test model008
