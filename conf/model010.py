@@ -1,7 +1,6 @@
-model_id = "SegResNet_focalLoss_192dim_dsV2"
-workdir = './model/model009'
-log_dir = f"{workdir}/runs/"
-seed = 949
+model_id = "UNet_focalLoss_192dim_batch2"
+workdir = './model/model0010'
+seed = 951
 
 
 epochs = 1000
@@ -15,7 +14,7 @@ prediction_folder = f"{workdir}/output"
 checkpoints = f"{workdir}/*.pt"
 
 loss = dict(
-    name="DiceFocalLoss",
+    name='DiceFocalLoss',
     params=dict(
         include_background=False,
         to_onehot_y=True,
@@ -24,7 +23,7 @@ loss = dict(
 )
 
 optimizer = dict(
-    name="Adam",
+    name='Adam',
     params=dict(
         lr=0.0005,
         betas=(0.9, 0.999),
@@ -34,18 +33,15 @@ optimizer = dict(
 )
 
 model = dict(
-    name="SegResNet",
+    name='UNet',
     params=dict(
-        spatial_dims=3,
-        init_filters=8,
+        dimensions=3,
         in_channels=1,
         out_channels=2,
-        dropout_prob=0.2,
-        norm_name="group",
-        num_groups=8,
-        use_conv_final=True,
-        blocks_down=(1, 2, 2, 4),
-        blocks_up=(1, 1, 1),
+        channels=(32, 32, 64, 128, 256, 32),
+        strides=(2, 2, 2, 2),
+        num_res_units=2,
+        dropout=0.2
     ),
 )
 
