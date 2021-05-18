@@ -1,5 +1,5 @@
 model_id = "UNet_focalLoss_192dim_batch2"
-workdir = './model/model0010'
+workdir = './model/model010'
 seed = 951
 
 
