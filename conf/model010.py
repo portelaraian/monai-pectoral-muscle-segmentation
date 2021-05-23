@@ -1,11 +1,12 @@
 model_id = "UNet_focalLoss_192dim_batch2"
 workdir = './model/model010'
+log_dir = f"{workdir}/runs/"
 seed = 951
 
 
 epochs = 1000
 amp = True
-batch_size = 8
+batch_size = 16
 num_workers = 4
 imgsize = (192, 192, 16)
 
@@ -38,10 +39,11 @@ model = dict(
         dimensions=3,
         in_channels=1,
         out_channels=2,
-        channels=(32, 32, 64, 128, 256, 32),
+        channels=(16, 32, 64, 128, 256),
         strides=(2, 2, 2, 2),
         num_res_units=2,
-        dropout=0.2
+        dropout=0.2,
+        norm="batch"
     ),
 )
 
