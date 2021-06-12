@@ -1,5 +1,6 @@
 model_id = "SegResNet_focalLoss_192dim_copyModel003"
 workdir = './model/model0031'
+log_dir = f"{workdir}/runs/"
 seed = 949
 
 
