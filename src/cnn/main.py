@@ -8,6 +8,7 @@ from ignite.contrib.handlers import ProgressBar
 from ignite.engine.events import Events
 
 import monai
+from monai.inferers import SimpleInferer
 from monai.handlers import (
     CheckpointSaver,
     SegmentationSaver,
@@ -19,12 +20,15 @@ from monai.handlers import (
     MetricsSaver,
     TensorBoardImageHandler,
     TensorBoardStatsHandler,
+    LrScheduleHandler
 )
 from monai.transforms import (
     AsDiscreted,
     MeanEnsembled
 )
 
+from dynunet.evaluator import DynUNetEvaluator
+from dynunet.trainer import DynUNetTrainer
 from utils.config import Config
 from utils.logger import logger, log
 from utils.util import SplitDataset
@@ -163,18 +167,18 @@ def run_nn(cfg, dataset_splitted, keys, index):
     log(f"Criterion: {cfg.loss.name}")
 
     # create evaluator (to be used to measure model quality during training)
-    val_post_transform = monai.transforms.Compose([
+    '''val_post_transform = monai.transforms.Compose([
         AsDiscreted(keys=("pred", "label"),
                     argmax=(True, False),
                     to_onehot=True,
                     n_classes=2)
-    ])
+    ])'''
 
     val_handlers = [
         ProgressBar(),
         StatsHandler(output_transform=lambda x: None),
         CheckpointSaver(save_dir=cfg.workdir,
-                        file_prefix=f"{cfg.model_id}_fold{index}",
+                        file_prefix=f"model_fold{index}",
                         save_dict={"model": model},
                         save_key_metric=True,
                         key_metric_n_saved=5),
@@ -187,23 +191,27 @@ def run_nn(cfg, dataset_splitted, keys, index):
         ),
     ]
 
-    evaluator = monai.engines.SupervisedEvaluator(
+    evaluator = DynUNetEvaluator(
         device=DEVICE,
         val_data_loader=val_loader,
         network=model,
+        n_classes=2,
         inferer=factory.get_inferer(cfg.imgsize),
-        post_transform=val_post_transform,
         key_val_metric={
-            "val_mean_dice": MeanDice(include_background=False, output_transform=lambda x: (x["pred"], x["label"])),
+            "val_mean_dice": MeanDice(
+                include_background=False,
+                output_transform=lambda x: (x["pred"], x["label"]),
+            )
         },
         val_handlers=val_handlers,
         amp=cfg.amp,
+        tta_val=True,
     )
 
     # evaluator as an event handler of the trainer
     train_handlers = [
         ProgressBar(),
-        ValidationHandler(validator=evaluator, interval=1, epoch_level=True),
+        ValidationHandler(validator=evaluator, interval=5, epoch_level=True),
         StatsHandler(
             tag_name="train_loss",
             output_transform=lambda x: x["loss"]
@@ -213,6 +221,10 @@ def run_nn(cfg, dataset_splitted, keys, index):
             tag_name="train_loss",
             output_transform=lambda x: x["loss"]
         ),
+        LrScheduleHandler(
+            lr_scheduler=scheduler,
+            print_lr=True,
+        )
     ]
 
     trainer = monai.engines.SupervisedTrainer(
@@ -223,6 +235,19 @@ def run_nn(cfg, dataset_splitted, keys, index):
         optimizer=optimizer,
         loss_function=criterion,
         inferer=factory.get_inferer(cfg.imgsize),
+        key_train_metric=None,
+        train_handlers=train_handlers,
+        amp=cfg.amp,
+    )
+
+    trainer = DynUNetTrainer(
+        device=DEVICE,
+        max_epochs=cfg.epochs,
+        train_data_loader=train_loader,
+        network=model,
+        optimizer=optimizer,
+        loss_function=criterion,
+        inferer=SimpleInferer(),
         key_train_metric=None,
         train_handlers=train_handlers,
         amp=cfg.amp,
