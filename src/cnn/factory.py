@@ -3,10 +3,12 @@ import torch
 from torch import nn
 from torch.optim import lr_scheduler
 from ignite.contrib.handlers import param_scheduler
+from ignite.contrib.handlers.param_scheduler import LRScheduler
 import monai
 from monai.transforms import (
     AddChanneld,
-    AsDiscreted,
+    RandGaussianSmoothd,
+    RandScaleIntensityd,
     CastToTyped,
     LoadImaged,
     Orientationd,
@@ -14,18 +16,19 @@ from monai.transforms import (
     RandCropByPosNegLabeld,
     RandFlipd,
     RandGaussianNoised,
-    ScaleIntensityRanged,
     Spacingd,
     SpatialPadd,
     ToTensord,
     ScaleIntensityd,
-    Zoomd,
-    RandRotate90d
+    EnsureChannelFirstd,
+    RandZoomd
 )
 from utils.logger import log
+from utils.util import get_kernels_strides
+from utils.preprocess_anisotropic import PreprocessAnisotropic
 
 
-def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16)):
+def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16), spacing=(1.25, 1.25, 5.0)):
     """Returns a composed transform.
 
     Args:
@@ -39,18 +42,28 @@ def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16)):
 
     xforms = [
         LoadImaged(keys),
-        AddChanneld(keys),
-        Orientationd(keys, axcodes="LPS"),
-        Spacingd(keys, pixdim=(1.25, 1.25, 5.0),
-                 mode=("bilinear", "nearest")[: len(keys)]),
-        ScaleIntensityd(keys, minv=0.0, maxv=1.0),
+        # AddChanneld(keys),
+        EnsureChannelFirstd(keys),
+        # Orientationd(keys, axcodes="LPS"),
+        # Spacingd(keys, pixdim=spacing, mode=("bilinear", "nearest")[: len(keys)]),
+        # ScaleIntensityd(keys, minv=0.0, maxv=1.0),
+        PreprocessAnisotropic(
+            keys=keys,
+            clip_values=[0, 0],
+            pixdim=spacing,
+            normalize_values=[0, 0],
+            model_mode=mode,
+        )
     ]
 
     if mode in ["train"]:
         xforms.extend(
             [
-                SpatialPadd(keys, spatial_size=(img_size[0], img_size[1], -1),
-                            mode="reflect"),  # ensure at least WxD
+                SpatialPadd(
+                    keys,
+                    spatial_size=(img_size[0], img_size[1], -1),
+                    mode="reflect"
+                ),  # ensure at least WxD
                 RandAffined(
                     keys,
                     prob=0.15,
@@ -60,14 +73,37 @@ def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16)):
                     mode=("bilinear", "nearest"),
                     as_tensor_output=False,
                 ),
-                RandCropByPosNegLabeld(keys, label_key=keys[1],
-                                       spatial_size=img_size,
-                                       num_samples=3),
-                RandGaussianNoised(keys[0], prob=0.15),
+                RandCropByPosNegLabeld(
+                    keys,
+                    label_key=keys[1],
+                    spatial_size=img_size,
+                    num_samples=4,
+                    pos=1,
+                    neg=1,
+                    image_key=keys[0],
+                    image_threshold=0,
+                ),
+                RandZoomd(
+                    keys=keys,
+                    min_zoom=0.9,
+                    max_zoom=1.2,
+                    mode=("trilinear", "nearest"),
+                    align_corners=(True, None),
+                    prob=0.15,
+                ),
+
+                RandGaussianNoised(keys[0], std=0.01, prob=0.15),
+                RandGaussianSmoothd(
+                    keys=keys[0],
+                    sigma_x=(0.5, 1.15),
+                    sigma_y=(0.5, 1.15),
+                    sigma_z=(0.5, 1.15),
+                    prob=0.15,
+                ),
                 RandFlipd(keys, spatial_axis=0, prob=0.5),
                 RandFlipd(keys, spatial_axis=1, prob=0.5),
                 RandFlipd(keys, spatial_axis=2, prob=0.5),
-
+                RandScaleIntensityd(keys=keys[0], factors=0.3, prob=0.15),
             ]
         )
 
@@ -121,7 +157,7 @@ def get_dataloader(cfg, mode, keys, data, img_size):
     return loaders
 
 
-def get_model(cfg):
+def get_model(cfg, patch_size=(192, 192, 16), spacing=(1.25, 1.25, 5.0)):
     """Instantiates the model.  
 
     Args:
@@ -130,6 +166,12 @@ def get_model(cfg):
     Returns:
         Pytorch (MONAI) model: Returns a model instance.
     """
+    if cfg.model.name == "DynUNet":
+        kernels, strides = get_kernels_strides(patch_size, spacing)
+        cfg.model.params.strides = strides
+        cfg.model.params.kernel_size = kernels
+        cfg.model.params.upsample_kernel_size = strides[1:]
+
     try:
         return getattr(monai.networks.nets, cfg.model.name)(**cfg.model.params)
     except:
@@ -185,8 +227,11 @@ def get_scheduler(cfg, optimizer, len_loader):
             return getattr(param_scheduler, cfg.scheduler.name)(
                 optimizer, cycle_size=len_loader, **cfg.scheduler.params)
         else:
-            return getattr(param_scheduler, cfg.scheduler.name)(
-                optimizer, **cfg.scheduler.params)
+            torch_scheduler = getattr(
+                torch.optim.lr_scheduler,
+                cfg.scheduler.name
+            )(optimizer, **cfg.scheduler.params)
+            return LRScheduler(torch_scheduler)
     except:
         log(f"Failed to load the scheduler. Scheduler: {cfg.scheduler.name}")
 
@@ -201,7 +246,7 @@ def get_inferer(patch_size):
         monai.inferes: Returns a SlidingWindowInferer.
     """
 
-    sw_batch_size, overlap = 2, 0.5
+    sw_batch_size, overlap = 4, 0.5
     inferer = monai.inferers.SlidingWindowInferer(
         roi_size=patch_size,
         sw_batch_size=sw_batch_size,
