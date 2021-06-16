@@ -19,7 +19,8 @@ from monai.transforms import (
     SpatialPadd,
     ToTensord,
     ScaleIntensityd,
-    Zoomd
+    Zoomd,
+    RandRotate90d
 )
 from utils.logger import log
 
@@ -52,7 +53,7 @@ def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16)):
                             mode="reflect"),  # ensure at least WxD
                 RandAffined(
                     keys,
-                    prob=0.25,
+                    prob=0.15,
                     # 3 parameters control the transform on 3 dimensions
                     rotate_range=(0.5, 0.5, None),
                     scale_range=(0.1, 0.1, None),
@@ -62,7 +63,7 @@ def _get_xforms(mode="train", keys=("image", "label"), img_size=(320, 320, 16)):
                 RandCropByPosNegLabeld(keys, label_key=keys[1],
                                        spatial_size=img_size,
                                        num_samples=3),
-                RandGaussianNoised(keys[0], prob=0.15, std=0.01),
+                RandGaussianNoised(keys[0], prob=0.15),
                 RandFlipd(keys, spatial_axis=0, prob=0.5),
                 RandFlipd(keys, spatial_axis=1, prob=0.5),
                 RandFlipd(keys, spatial_axis=2, prob=0.5),
