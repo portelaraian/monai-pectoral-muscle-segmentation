@@ -8,4 +8,6 @@ train() {
     python3 ./src/cnn/main.py train ${conf} --gpu ${gpu}
 }
 
-train model0031
+train model013
+train model012
+

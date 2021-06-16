@@ -6,7 +6,7 @@ addict==2.4.0
 imutils==0.5.4
 nibabel==3.2.1
 dill==0.3.3
-monai==0.5.0
+monai>=0.5.0
 scikit-image
 scipy
 regex
