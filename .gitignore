@@ -4,11 +4,14 @@
 /runs*
 /papers*
 /notebooks*
-/MONAI*
 /conf*
+/MONAI*
+/tutorials*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
+*$py.class
 
 # C extensions
 *.so
