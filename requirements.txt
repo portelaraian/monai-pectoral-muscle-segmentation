@@ -6,8 +6,8 @@ addict==2.4.0
 imutils==0.5.4
 nibabel==3.2.1
 dill==0.3.3
-scikit-image>=0.18.1
-scipy>=1.6.3
+scipy
+scikit-image
 regex
 
 

@@ -167,13 +167,6 @@ def run_nn(cfg, dataset_splitted, keys, index):
     log(f"Criterion: {cfg.loss.name}")
 
     # create evaluator (to be used to measure model quality during training)
-    '''val_post_transform = monai.transforms.Compose([
-        AsDiscreted(keys=("pred", "label"),
-                    argmax=(True, False),
-                    to_onehot=True,
-                    n_classes=2)
-    ])'''
-
     val_handlers = [
         ProgressBar(),
         StatsHandler(output_transform=lambda x: None),
@@ -227,19 +220,6 @@ def run_nn(cfg, dataset_splitted, keys, index):
         )
     ]
 
-    trainer = monai.engines.SupervisedTrainer(
-        device=DEVICE,
-        max_epochs=cfg.epochs,
-        train_data_loader=train_loader,
-        network=model,
-        optimizer=optimizer,
-        loss_function=criterion,
-        inferer=factory.get_inferer(cfg.imgsize),
-        key_train_metric=None,
-        train_handlers=train_handlers,
-        amp=cfg.amp,
-    )
-
     trainer = DynUNetTrainer(
         device=DEVICE,
         max_epochs=cfg.epochs,
@@ -253,10 +233,7 @@ def run_nn(cfg, dataset_splitted, keys, index):
         amp=cfg.amp,
     )
 
-    trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
     trainer.run()
-
-    return model
 
 
 def test(cfg):
