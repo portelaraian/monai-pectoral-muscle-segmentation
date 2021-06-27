@@ -227,11 +227,10 @@ def get_scheduler(cfg, optimizer, len_loader):
             return getattr(param_scheduler, cfg.scheduler.name)(
                 optimizer, cycle_size=len_loader, **cfg.scheduler.params)
         else:
-            torch_scheduler = getattr(
+            return getattr(
                 torch.optim.lr_scheduler,
                 cfg.scheduler.name
             )(optimizer, **cfg.scheduler.params)
-            return LRScheduler(torch_scheduler)
     except:
         log(f"Failed to load the scheduler. Scheduler: {cfg.scheduler.name}")
 

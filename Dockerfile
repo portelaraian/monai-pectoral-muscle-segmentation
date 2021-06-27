@@ -6,6 +6,7 @@ RUN apt-get upgrade -y
 
 # Adding all repository into the container
 WORKDIR /home/raian/Documents/repos/pectoral-muscle-segmentation
+# WORKDIR /home/ec2-user/SageMaker/pectoral-muscle-segmentation
 
 # Installing libraries
 ADD ./requirements.txt ./
