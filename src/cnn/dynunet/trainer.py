@@ -42,6 +42,7 @@ class DynUNetTrainer(SupervisedTrainer):
             kwargs: Dict = {}
         else:
             inputs, targets, args, kwargs = batch
+
         # put iteration outputs into engine.state
         engine.state.output = {Keys.IMAGE: inputs, Keys.LABEL: targets}
 
@@ -50,8 +51,10 @@ class DynUNetTrainer(SupervisedTrainer):
             if len(preds.size()) - len(targets.size()) == 1:
                 # deep supervision mode, need to unbind feature maps first.
                 preds = torch.unbind(preds, dim=1)
+
             engine.state.output[Keys.PRED] = preds
             del preds
+
             engine.fire_event(IterationEvents.FORWARD_COMPLETED)
             engine.state.output[Keys.LOSS] = sum(
                 0.5 ** i * self.loss_function.forward(p, targets)
