@@ -29,6 +29,7 @@ from monai.transforms import (
 
 from dynunet.evaluator import DynUNetEvaluator
 from dynunet.trainer import DynUNetTrainer
+from dynunet.inferrer import DynUNetInferrer
 from utils.config import Config
 from utils.logger import logger, log
 from utils.util import SplitDataset
@@ -236,6 +237,42 @@ def run_nn(cfg, dataset_splitted, keys, index):
     trainer.run()
 
 
+def test_dynunet(model, cfg, loader, keys):
+
+    model.eval()
+
+    val_handlers = [
+        ProgressBar(),
+        StatsHandler(
+            name="evaluator",
+            # no need to print loss value, so disable per iteration output
+            output_transform=lambda x: None,
+        ),
+        MetricsSaver(
+            save_dir=cfg.prediction_folder,
+            delimiter=",",
+            metric_details="*",
+            batch_transform=lambda batch: batch["image_meta_dict"],
+
+        )
+
+    ]
+
+    inferrer = DynUNetInferrer(
+        device=DEVICE,
+        val_data_loader=loader,
+        network=model,
+        output_dir=cfg.prediction_folder,
+        n_classes=cfg.model.params.out_channels,
+        inferer=factory.get_inferer(cfg.imgsize),
+        val_handlers=val_handlers,
+        amp=cfg.amp,
+        tta_val=cfg.tta,
+    )
+
+    inferrer.run()
+
+
 def test(cfg):
     """Perform evalutaion and save the segmentations.
 
@@ -259,15 +296,23 @@ def test(cfg):
         keys, test_files, cfg.imgsize
     )
 
-    model_paths = glob.glob(cfg.checkpoints)
-    models = []
+    if type(cfg.checkpoints) != list:
+        model_paths = glob.glob(cfg.checkpoints)
+        models = []
 
     for model_path in model_paths:
         model = factory.get_model(cfg).to(DEVICE)
         model.load_state_dict(torch.load(model_path))
+        model.eval()
         models.append(model)
+        break
 
     log(f"Total models: {len(models)}")
+
+    if cfg.model.name == "DynUNet":
+        [test_dynunet(model, cfg, val_loader, keys) for model in models]
+        return
+
     pred_keys = [f"pred{idx}" for idx in range(len(models))]
 
     mean_post_transforms = monai.transforms.Compose(
@@ -275,7 +320,7 @@ def test(cfg):
             MeanEnsembled(
                 keys=pred_keys,
                 output_key="pred",
-                #weights=[0.95, 0.94, 0.95, 0.94, 0.90],
+                # weights=[0.95, 0.94, 0.95, 0.94, 0.90],
             ),
             AsDiscreted(keys=("pred", "label"),
                         argmax=(True, False),

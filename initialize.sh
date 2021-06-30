@@ -1,1 +1,1 @@
-docker container start -ai 4b4
+nvidia-docker container start -ai 4b4

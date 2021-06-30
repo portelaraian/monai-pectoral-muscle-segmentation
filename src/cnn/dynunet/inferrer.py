@@ -3,12 +3,13 @@ import os
 import sys
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
+import numpy as np
 import torch
 import torch.nn as nn
 from ignite.engine import Engine
 from ignite.metrics import Metric
+from monai.data.nifti_writer import write_nifti
 from monai.engines import SupervisedEvaluator
-from monai.engines.utils import CommonKeys as Keys
 from monai.engines.utils import IterationEvents, default_prepare_batch
 from monai.inferers import Inferer
 from monai.networks.utils import eval_mode
@@ -18,16 +19,16 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, os.path.join(os.getcwd(), "../utils"))
 
 
-class DynUNetEvaluator(SupervisedEvaluator):
+class DynUNetInferrer(SupervisedEvaluator):
     """
     This class inherits from SupervisedEvaluator in MONAI, and is used with DynUNet
     on Decathlon datasets.
-
     Args:
         device: an object representing the device on which to run.
         val_data_loader: Ignite engine use data_loader to run, must be
             torch.DataLoader.
         network: use the network to run model forward.
+        output_dir: the path to save inferred outputs.
         n_classes: the number of classes (output channels) for the task.
         epoch_length: number of iterations for one epoch, default to
             `len(val_data_loader)`.
@@ -48,7 +49,6 @@ class DynUNetEvaluator(SupervisedEvaluator):
         amp: whether to enable auto-mixed-precision evaluation, default is False.
         tta_val: whether to do the 8 flips (8 = 2 ** 3, where 3 represents the three dimensions)
             test time augmentation, default is False.
-
     """
 
     def __init__(
@@ -56,6 +56,7 @@ class DynUNetEvaluator(SupervisedEvaluator):
         device: torch.device,
         val_data_loader: DataLoader,
         network: torch.nn.Module,
+        output_dir: str,
         n_classes: Union[str, int],
         epoch_length: Optional[int] = None,
         non_blocking: bool = False,
@@ -87,42 +88,35 @@ class DynUNetEvaluator(SupervisedEvaluator):
 
         if not isinstance(n_classes, int):
             n_classes = int(n_classes)
-        self.n_classes = n_classes
         self.post_pred = AsDiscrete(
             argmax=True, to_onehot=True, n_classes=n_classes)
-        self.post_label = AsDiscrete(to_onehot=True, n_classes=n_classes)
+        self.output_dir = output_dir
         self.tta_val = tta_val
+        self.n_classes = n_classes
 
     def _iteration(
         self, engine: Engine, batchdata: Dict[str, Any]
     ) -> Dict[str, torch.Tensor]:
         """
         callback function for the Supervised Evaluation processing logic of 1 iteration in Ignite Engine.
-        Return below items in a dictionary:
-            - IMAGE: image Tensor data for model input, already moved to device.
-            - LABEL: label Tensor data corresponding to the image, already moved to device.
+        Return below item in a dictionary:
             - PRED: prediction result of model.
-
         Args:
             engine: Ignite Engine, it can be a trainer, validator or evaluator.
             batchdata: input data for this iteration, usually can be dictionary or tuple of Tensor data.
-
         Raises:
             ValueError: When ``batchdata`` is None.
-
         """
         if batchdata is None:
             raise ValueError("Must provide batch data for current iteration.")
         batch = self.prepare_batch(
             batchdata, engine.state.device, engine.non_blocking)
         if len(batch) == 2:
-            inputs, targets = batch
+            inputs, _ = batch
             args: Tuple = ()
             kwargs: Dict = {}
         else:
-            inputs, targets, args, kwargs = batch
-
-        targets = targets.cpu()
+            inputs, _, args, kwargs = batch
 
         def _compute_pred():
             ct = 1.0
@@ -153,32 +147,44 @@ class DynUNetEvaluator(SupervisedEvaluator):
 
         inputs = inputs.cpu()
         predictions = self.post_pred(predictions)
-        targets = self.post_label(targets)
 
+        affine = batchdata["image_meta_dict"]["affine"].numpy()[0]
         resample_flag = batchdata["resample_flag"]
         anisotrophy_flag = batchdata["anisotrophy_flag"]
         crop_shape = batchdata["crop_shape"][0].tolist()
         original_shape = batchdata["original_shape"][0].tolist()
+
         if resample_flag:
             # convert the prediction back to the original (after cropped) shape
             predictions = recovery_prediction(
-                predictions.numpy()[0], [self.n_classes,
-                                         *crop_shape], anisotrophy_flag
+                predictions.numpy()[0],
+                [self.n_classes, *crop_shape], anisotrophy_flag
             )
-            predictions = torch.tensor(predictions)
+        else:
+            predictions = predictions.numpy()
 
-        # put iteration outputs into engine.state
-        engine.state.output = output = {
-            Keys.IMAGE: inputs, Keys.LABEL: targets}
-        output[Keys.PRED] = torch.zeros([1, self.n_classes, *original_shape])
+        predictions = predictions[0]
+        predictions = np.argmax(predictions, axis=0)
+
         # pad the prediction back to the original shape
+        predictions_org = np.zeros([*original_shape])
         box_start, box_end = batchdata["bbox"][0]
         h_start, w_start, d_start = box_start
         h_end, w_end, d_end = box_end
-        output[Keys.PRED][
-            0, :, h_start:h_end, w_start:w_end, d_start:d_end
-        ] = predictions
+        predictions_org[h_start:h_end, w_start:w_end,
+                        d_start:d_end] = predictions
         del predictions
 
+        filename = batchdata["image_meta_dict"]["filename_or_obj"][0].split(
+            "/"
+        )[-1]
+
+        write_nifti(
+            data=predictions_org,
+            file_name=os.path.join(self.output_dir, filename),
+            affine=affine,
+            resample=False,
+            output_dtype=np.uint8,
+        )
         engine.fire_event(IterationEvents.FORWARD_COMPLETED)
-        return output
+        return {"pred": predictions_org}
