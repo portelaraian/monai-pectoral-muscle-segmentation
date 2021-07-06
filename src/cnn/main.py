@@ -4,32 +4,22 @@ import argparse
 import glob
 
 import torch
-from ignite.contrib.handlers import ProgressBar
-from ignite.engine.events import Events
 
 import monai
-from monai.inferers import SimpleInferer
 from monai.handlers import (
-    CheckpointSaver,
     SegmentationSaver,
     MeanDice,
     StatsHandler,
-    ValidationHandler,
     HausdorffDistance,
     StatsHandler,
     MetricsSaver,
-    TensorBoardImageHandler,
-    TensorBoardStatsHandler,
-    LrScheduleHandler
+
 )
 from monai.transforms import (
     AsDiscreted,
     MeanEnsembled
 )
 
-from dynunet.evaluator import DynUNetEvaluator
-from dynunet.trainer import DynUNetTrainer
-from dynunet.inferrer import DynUNetInferrer
 from utils.config import Config
 from utils.logger import logger, log
 from utils.util import SplitDataset
@@ -51,14 +41,16 @@ def get_args():
     parser = argparse.ArgumentParser(
         description="Runs the segmentation algorithm.")
 
-    parser.add_argument("mode", metavar="mode", default="train",
-                        choices=("train", "test", "test-segment"),
-                        type=str, help="mode of workflow"
-                        )
+    parser.add_argument(
+        "mode",
+        metavar="mode",
+        choices=("train", "test"),
+        type=str,
+        help="mode of workflow"
+    )
     parser.add_argument("config")
     parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument('--snapshot')
-    parser.add_argument('--output')
+    parser.add_argument("--fold", type=int)
 
     return parser.parse_args()
 
@@ -74,8 +66,7 @@ def main():
 
     cfg.mode = args.mode
     cfg.gpu = args.gpu
-    cfg.snapshot = args.snapshot
-    cfg.output = args.output
+    cfg.fold = args.fold
 
     logger.setup(cfg.workdir, name='%s_model_%s_config' %
                  (cfg.mode, cfg.model.name))
@@ -85,6 +76,7 @@ def main():
     monai.config.print_config()
     monai.utils.set_determinism(seed=cfg.seed)
 
+    log(f"Using: {DEVICE}")
     log(f"Model: {cfg.model.name}")
     log(f"Mode: {cfg.mode}")
 
@@ -110,87 +102,73 @@ def train(cfg):
 
     log(f"Training: image/label ({len(data)}) folder: {cfg.data.train.imgdir}")
 
-    keys = ("image", "label")
-
     # split dataset
     dataset_splitted = SplitDataset(data, cfg.seed)
+    train_files, val_files = dataset_splitted.get_data(
+        current_fold=cfg.fold,
+        keys=cfg.keysd,
+        path_to_masks_dir=os.path.join(cfg.data.valid.imgdir, "masks")
+    )
 
     batch_size = cfg.batch_size
     log(f"Batch size: {batch_size}")
 
-    num_models = 5
-    [run_nn(cfg, dataset_splitted, keys, idx) for idx in range(num_models)]
-
-
-def run_nn(cfg, dataset_splitted, keys, index):
-    """Run the deep cnn model.
-
-    Args:
-        cfg (config file): Config file from model.
-        dataset_splitted (list): list of the dataset splitted into n_folds.
-        keys (tuple): dictionary keys used. E.g. ("image", "label").
-        index (int): index indicating the fold index.
-
-    Returns:
-        torch model: returns a trained model
-    """
-    log("")
-    log("#"*33)
-    log(f"## Started to train on fold: {index} ##")
-    log("#"*33)
-
-    train_files, val_files = dataset_splitted.get_data(
-        current_fold=index,
-        keys=keys,
-        path_to_masks_dir=os.path.join(cfg.data.valid.imgdir, "masks"),
-    )
-
-    log(f"Train files: {len(train_files)} | Val files: {len(val_files)}")
-
     # creating data loaders
-    train_loader = factory.get_dataloader(
-        cfg.data.train, cfg.mode,
-        keys, train_files, cfg.imgsize
-    )
-
-    val_loader = factory.get_dataloader(
-        cfg.data.valid, 'val',
-        keys, val_files, cfg.imgsize
-    )
+    train_loader = factory.get_dataloader(cfg.data.train, train_files)
+    val_loader = factory.get_dataloader(cfg.data.valid, val_files)
 
     model = factory.get_model(cfg).to(DEVICE)
     optimizer = factory.get_optimizer(cfg, model.parameters())
     scheduler = factory.get_scheduler(cfg, optimizer, len(train_loader))
     criterion = factory.get_loss(cfg)
+    inferer = factory.get_inferer(cfg)
 
-    log(f"Optimizer: {cfg.optimizer.name}")
-    log(f"LR Scheduler: {cfg.scheduler.name}")
-    log(f"Criterion: {cfg.loss.name}")
+    run_nn(
+        cfg=cfg,
+        current_fold=cfg.fold,
+        model=model,
+        inferer=inferer,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        criterion=criterion,
+        train_loader=train_loader,
+        val_loader=val_loader
+    )
+
+
+def run_nn(cfg, current_fold, model, inferer, optimizer, scheduler, criterion, train_loader, val_loader):
+    """Run the deep cnn model
+
+    Args:
+        cfg (cfg): Config file from model.
+        current_fold (int): Current fold to train the model.
+        model (pytorch model): Pytorch Model to be trained.
+        optimizer (pytorch optimizer): Pytorch Optimizer loaded.
+        scheduler (pytorch scheduler): Pytorch Learning Rate Scheduler
+        criterion (monai loss): MONAI Loss function
+        train_loader (pytorch dataloader): Train Dataloader
+        val_loader (pytorch dataloader): Validation Dataloader
+    """
+
+    log("")
+    log("#"*33)
+    log(f"## Started to train on fold: {current_fold} ##")
+    log("#"*33)
+
+    val_handlers = factory.get_handlers(
+        cfg,
+        cfg.handlers.val,
+        model,
+        current_fold
+    )
 
     # create evaluator (to be used to measure model quality during training)
-    val_handlers = [
-        ProgressBar(),
-        StatsHandler(output_transform=lambda x: None),
-        CheckpointSaver(save_dir=cfg.workdir,
-                        file_prefix=f"model_fold{index}",
-                        save_dict={"model": model},
-                        save_key_metric=True,
-                        key_metric_n_saved=5),
-        TensorBoardStatsHandler(log_dir=cfg.log_dir,
-                                output_transform=lambda x: None),
-        TensorBoardImageHandler(
-            log_dir=cfg.log_dir,
-            batch_transform=lambda x: (x["image"], x["label"]),
-            output_transform=lambda x: x["pred"],
-        ),
-    ]
-
-    evaluator = DynUNetEvaluator(
+    evaluator = monai.engines.SupervisedEvaluator(
         device=DEVICE,
         val_data_loader=val_loader,
         network=model,
-        n_classes=2,
-        inferer=factory.get_inferer(cfg.imgsize),
+        inferer=inferer,
+        post_transform=factory.get_post_transforms(),
         key_val_metric={
             "val_mean_dice": MeanDice(
                 include_background=False,
@@ -199,36 +177,25 @@ def run_nn(cfg, dataset_splitted, keys, index):
         },
         val_handlers=val_handlers,
         amp=cfg.amp,
-        tta_val=True,
     )
 
-    # evaluator as an event handler of the trainer
-    train_handlers = [
-        ProgressBar(),
-        ValidationHandler(validator=evaluator, interval=5, epoch_level=True),
-        StatsHandler(
-            tag_name="train_loss",
-            output_transform=lambda x: x["loss"]
-        ),
-        TensorBoardStatsHandler(
-            log_dir=cfg.log_dir,
-            tag_name="train_loss",
-            output_transform=lambda x: x["loss"]
-        ),
-        LrScheduleHandler(
-            lr_scheduler=scheduler,
-            print_lr=True,
-        )
-    ]
+    train_handlers = factory.get_handlers(
+        cfg,
+        cfg.handlers.train,
+        model,
+        current_fold,
+        evaluator,
+        scheduler
+    )
 
-    trainer = DynUNetTrainer(
+    trainer = monai.engines.SupervisedTrainer(
         device=DEVICE,
         max_epochs=cfg.epochs,
         train_data_loader=train_loader,
         network=model,
         optimizer=optimizer,
         loss_function=criterion,
-        inferer=SimpleInferer(),
+        inferer=inferer,
         key_train_metric=None,
         train_handlers=train_handlers,
         amp=cfg.amp,
@@ -237,84 +204,30 @@ def run_nn(cfg, dataset_splitted, keys, index):
     trainer.run()
 
 
-def test_dynunet(model, cfg, loader, keys):
-
-    model.eval()
-
-    val_handlers = [
-        ProgressBar(),
-        StatsHandler(
-            name="evaluator",
-            # no need to print loss value, so disable per iteration output
-            output_transform=lambda x: None,
-        ),
-        MetricsSaver(
-            save_dir=cfg.prediction_folder,
-            delimiter=",",
-            metric_details="*",
-            batch_transform=lambda batch: batch["image_meta_dict"],
-
-        )
-
-    ]
-
-    inferrer = DynUNetInferrer(
-        device=DEVICE,
-        val_data_loader=loader,
-        network=model,
-        output_dir=cfg.prediction_folder,
-        n_classes=cfg.model.params.out_channels,
-        inferer=factory.get_inferer(cfg.imgsize),
-        val_handlers=val_handlers,
-        amp=cfg.amp,
-        tta_val=cfg.tta,
-    )
-
-    inferrer.run()
-
-
 def test(cfg):
     """Perform evalutaion and save the segmentations.
 
      Args:
         cfg (config file): Config file from model.
     """
-    images = sorted(glob.glob(
-        os.path.join(cfg.data.test.imgdir, "mri/*.nii.gz")))
-    labels = sorted(glob.glob(
-        os.path.join(cfg.data.test.imgdir, "masks/*.nii")))
+    images = sorted(
+        glob.glob(os.path.join(cfg.data.test.imgdir, "mri/*.nii.gz"))
+    )
+    labels = sorted(
+        glob.glob(os.path.join(cfg.data.test.imgdir, "masks/*.nii"))
+    )
 
     log(f"Testing: image/label ({len(images)}/{len(labels)}) folder: {cfg.data.test.imgdir}")
 
-    test_files = [{"image": img, "label": seg}
-                  for img, seg in zip(images, labels)]
-    keys = ("image", "label")
+    test_files = [
+        {"image": img, "label": seg}
+        for img, seg in zip(images, labels)
+    ]
 
-    # creating data loader
-    val_loader = factory.get_dataloader(
-        cfg.data.test, 'val',
-        keys, test_files, cfg.imgsize
-    )
-
-    if type(cfg.checkpoints) != list:
-        model_paths = glob.glob(cfg.checkpoints)
-        models = []
-
-    for model_path in model_paths:
-        model = factory.get_model(cfg).to(DEVICE)
-        model.load_state_dict(torch.load(model_path))
-        model.eval()
-        models.append(model)
-        break
-
-    log(f"Total models: {len(models)}")
-
-    if cfg.model.name == "DynUNet":
-        [test_dynunet(model, cfg, val_loader, keys) for model in models]
-        return
+    val_loader = factory.get_dataloader(cfg.data.test, test_files)
+    models = factory.get_models(cfg, DEVICE)
 
     pred_keys = [f"pred{idx}" for idx in range(len(models))]
-
     mean_post_transforms = monai.transforms.Compose(
         [
             MeanEnsembled(
@@ -334,7 +247,7 @@ def test(cfg):
         mean_post_transforms,
         val_loader,
         models,
-        pred_keys
+        pred_keys,
     )
 
 
@@ -353,7 +266,7 @@ def ensemble_evaluate(cfg, post_transforms, loader, models, pred_keys):
         val_data_loader=loader,
         pred_keys=pred_keys,
         networks=models,
-        inferer=factory.get_inferer(cfg.imgsize),
+        inferer=factory.get_inferer(cfg),
         post_transform=post_transforms,
         key_val_metric={
             "test_mean_dice": MeanDice(
@@ -367,15 +280,14 @@ def ensemble_evaluate(cfg, post_transforms, loader, models, pred_keys):
                 output_transform=lambda x: (x["pred"], x["label"])
             )
         },
-        amp=True,
+        amp=cfg.amp,
     )
 
-    val_stats_handler = StatsHandler(
+    StatsHandler(
         name="evaluator",
         # no need to print loss value, so disable per iteration output
         output_transform=lambda x: None,
-    )
-    val_stats_handler.attach(evaluator)
+    ).attach(evaluator)
 
     # convert the necessary metadata from batch data
     SegmentationSaver(
@@ -393,7 +305,6 @@ def ensemble_evaluate(cfg, post_transforms, loader, models, pred_keys):
         delimiter=",",
         metric_details="*",
         batch_transform=lambda batch: batch["image_meta_dict"],
-
     ).attach(evaluator)
 
     evaluator.run()
