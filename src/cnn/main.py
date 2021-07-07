@@ -162,13 +162,17 @@ def run_nn(cfg, current_fold, model, inferer, optimizer, scheduler, criterion, t
         current_fold
     )
 
+    post_transforms = factory.get_post_transforms(
+        cfg.data.train.post_transforms
+    )
+
     # create evaluator (to be used to measure model quality during training)
     evaluator = monai.engines.SupervisedEvaluator(
         device=DEVICE,
         val_data_loader=val_loader,
         network=model,
         inferer=inferer,
-        post_transform=factory.get_post_transforms(),
+        post_transform=post_transforms,
         key_val_metric={
             "val_mean_dice": MeanDice(
                 include_background=False,
@@ -228,12 +232,13 @@ def test(cfg):
     models = factory.get_models(cfg, DEVICE)
 
     pred_keys = [f"pred{idx}" for idx in range(len(models))]
+
     mean_post_transforms = monai.transforms.Compose(
         [
             MeanEnsembled(
                 keys=pred_keys,
                 output_key="pred",
-                # weights=[0.95, 0.94, 0.95, 0.94, 0.90],
+                #weights=[0.95, 0.94, 0.95, 0.94, 0.90],
             ),
             AsDiscreted(keys=("pred", "label"),
                         argmax=(True, False),
