@@ -94,7 +94,7 @@ def train(cfg):
     """Run a training pipeline.
 
     Args:
-        cfg (config file): Config file from model.
+        cfg (dict): config file.
     """
 
     data = sorted(glob.glob(os.path.join(
@@ -140,14 +140,15 @@ def run_nn(cfg, current_fold, model, inferer, optimizer, scheduler, criterion, t
     """Run the deep cnn model
 
     Args:
-        cfg (cfg): Config file from model.
-        current_fold (int): Current fold to train the model.
-        model (pytorch model): Pytorch Model to be trained.
-        optimizer (pytorch optimizer): Pytorch Optimizer loaded.
-        scheduler (pytorch scheduler): Pytorch Learning Rate Scheduler
-        criterion (monai loss): MONAI Loss function
-        train_loader (pytorch dataloader): Train Dataloader
-        val_loader (pytorch dataloader): Validation Dataloader
+        cfg (dict): config file.
+        current_fold (int): current fold to train the model.
+        model (monai.networks.nets): MONAI architecture to be trained.
+        inferer (monai.inferers): sliding window method for model inference.
+        optimizer (torch.optim): pytorch optimizer.
+        scheduler (torch.optim.lr_scheduler): pytorch lr scheduler.
+        criterion (monai.losses): MONAI loss function.
+        train_loader (dataloader): train dataloader.
+        val_loader (dataloader): validation dataloader.
     """
 
     log("")
@@ -212,7 +213,7 @@ def test(cfg):
     """Perform evalutaion and save the segmentations.
 
      Args:
-        cfg (config file): Config file from model.
+        cfg (dict): config file.
     """
     images = sorted(
         glob.glob(os.path.join(cfg.data.test.imgdir, "mri/*.nii.gz"))
@@ -318,6 +319,7 @@ def ensemble_evaluate(cfg, post_transforms, loader, models, pred_keys):
 if __name__ == "__main__":
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.enabled = False
+
     log(torch.backends.cudnn.benchmark)
 
     torch.cuda.empty_cache()

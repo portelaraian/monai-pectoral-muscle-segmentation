@@ -19,12 +19,14 @@ def _get_transforms(transforms, dtype=(np.float32, np.uint8), keys=("image", "la
     """Returns a composed transform.
 
     Args:
-        mode (str, optional): Mode speficied (e.g. train/test). Defaults to "train".
-        img_size (tuple, optional): Spatial image size. Defaults to (320, 320, 16).
+        transforms (list): list containing all transforms specified on config file (cfg).
+        dtype (tuple, optional): dtypes used on CastToTyped MONAI transform. Defaults to (np.float32, np.uint8).
+        keys (tuple, optional): keys used as params for MONAI transforms . Defaults to ("image", "label").
 
     Returns:
-        [monai.transforms]: Returns MONAI transforms composed.
+        monai.transforms: returns MONAI transforms composed.
     """
+
     def get_object(transform):
         if hasattr(monai.transforms, transform.name):
             return getattr(monai.transforms, transform.name)(**transform.params)
@@ -47,11 +49,11 @@ def get_dataloader(cfg, data):
     """Apply the transforms and create a DataLoader.
 
     Args:
-        cfg (config file): Config file from model.
-        data (list): List containing all the files (in this case the MRIs).
+        cfg (dict): config file.
+        data (list): list containing all the files (in this case the MRIs).
 
     Returns:
-        monai.data.DataLoader: Returns a DataLoader.
+        monai.data.DataLoader: returns a DataLoader.
     """
     transforms = _get_transforms(cfg.transforms)
 
@@ -92,10 +94,10 @@ def get_model(cfg):
     """Instantiates the model.
 
     Args:
-        cfg (config file): Config file from model.
+        cfg (dict): config file.
 
     Returns:
-        Pytorch (MONAI) model: Returns a model instance.
+        Pytorch (MONAI) model: returns a model instance.
     """
     if cfg.model.name == "DynUNet":
         raise ValueError(f"Not supporting {cfg.model.name} anymore.")
@@ -110,10 +112,10 @@ def get_loss(cfg):
     """Instantiate the loss function.
 
     Args:
-        cfg (config file): Config file from model.
+        cfg (dict): config file.
 
     Returns:
-        monai.losses: Returns a monai instance loss.
+        monai.losses: returns a monai instance loss.
     """
     log(f"Criterion: {cfg.loss.name}")
 
@@ -129,11 +131,11 @@ def get_optimizer(cfg, parameters):
     """Get the optimizer.
 
     Args:
-        cfg (config file): Config file from model.
-        parameters (model.params): Params from the model.
+        cfg (dict): config file.
+        parameters (model.params): params from the model.
 
     Returns:
-        torch.optim: Returns a optimizer (Pytorch).
+        torch.optim: returns a optimizer (pytorch).
     """
     optimizer = getattr(torch.optim, cfg.optimizer.name)(
         parameters, **cfg.optimizer.params)
@@ -146,12 +148,12 @@ def get_scheduler(cfg, optimizer, len_loader):
     """Get scheduler.
 
     Args:
-        cfg (config file): Config file from model.
-        optimizer (torch.optim): Optimizer.
-        len_loader (int): Len of the DataLoader.
+        cfg (dict): config file.
+        optimizer (torch.optim): optimizer.
+        len_loader (int): len of the DataLoader.
 
     Returns:
-        lr_scheduler (ignite): Returns a learning rate scheduler.
+        lr_scheduler (ignite): returns a learning rate scheduler.
     """
     log(f"LR Scheduler: {cfg.scheduler.name}")
 
@@ -172,10 +174,10 @@ def get_inferer(cfg):
     """Returns a sliding window inference instance
 
     Args:
-        cfg (Config file): cfg (config file): Config file..
+        cfg (dict): config file.
 
     Returns:
-        monai.inferer: Returns a MONAI inferer.
+        monai.inferer: returns a MONAI inferer.
     """
     try:
         return getattr(monai.inferers, cfg.inferer.name)(**cfg.inferer.params)
@@ -186,6 +188,19 @@ def get_inferer(cfg):
 
 
 def get_handlers(cfg, handler, model=None, fold=None, evaluator=None, scheduler=None):
+    """Returns the handlers specified on config file (cfg).
+
+    Args:
+        cfg (dict): config file.
+        handler (list): list of all handlers and its parameters.
+        model (monai.networks.nets, optional): architecture used for training. Defaults to None.
+        fold (int, optional): current fold. Defaults to None.
+        evaluator (monai.engines.SupervisedEvaluator, optional): evaluator used for validation. Defaults to None.
+        scheduler (torch.optim.lr_scheduler, optional): lr scheduler used for training. Defaults to None.
+
+    Returns:
+        handlers (list): list containing all handlers loaded.
+    """
     def get_object(handler):
         if hasattr(monai.handlers, handler.name):
             return getattr(monai.handlers, handler.name)
@@ -222,6 +237,15 @@ def get_handlers(cfg, handler, model=None, fold=None, evaluator=None, scheduler=
 
 
 def get_models(cfg, device):
+    """Load models for testing.
+
+    Args:
+        cfg (dict): config file.
+        device (str): device used. (eg.:. 'cpu' or 'cuda')
+
+    Returns:
+        list: return all the models loaded.
+    """
 
     if type(cfg.checkpoints) != list:
         model_paths = glob.glob(cfg.checkpoints)
