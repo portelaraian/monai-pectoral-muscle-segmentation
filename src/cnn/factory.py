@@ -70,13 +70,22 @@ def get_dataloader(cfg, data):
     )
 
 
-def get_post_transforms(post_transforms=None):
-    return monai.transforms.Compose([
-        monai.transforms.AsDiscreted(keys=("pred", "label"),
-                                     argmax=(True, False),
-                                     to_onehot=True,
-                                     n_classes=2)
-    ])
+def get_post_transforms(transforms):
+    """Returns MONAI post transforms composed.
+
+    Args:
+        transforms (dict): python dict containing all transforms and its parameters.
+    """
+    def get_object(post_transform):
+        if hasattr(monai.transforms, post_transform.name):
+            return getattr(monai.transforms, post_transform.name)(**post_transform.params)
+        else:
+            return eval(post_transform.name)
+
+    post_transforms = [get_object(post_transform)
+                       for post_transform in transforms]
+
+    return monai.transforms.Compose(post_transforms)
 
 
 def get_model(cfg):
