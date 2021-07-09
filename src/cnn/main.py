@@ -13,6 +13,7 @@ from monai.handlers import (
     HausdorffDistance,
     StatsHandler,
     MetricsSaver,
+    from_engine,
 
 )
 from monai.transforms import (
@@ -173,11 +174,11 @@ def run_nn(cfg, current_fold, model, inferer, optimizer, scheduler, criterion, t
         val_data_loader=val_loader,
         network=model,
         inferer=inferer,
-        post_transform=post_transforms,
+        postprocessing=post_transforms,
         key_val_metric={
             "val_mean_dice": MeanDice(
                 include_background=False,
-                output_transform=lambda x: (x["pred"], x["label"]),
+                output_transform=from_engine(["pred", "label"]),
             )
         },
         val_handlers=val_handlers,
@@ -277,13 +278,13 @@ def ensemble_evaluate(cfg, post_transforms, loader, models, pred_keys):
         key_val_metric={
             "test_mean_dice": MeanDice(
                 include_background=False,
-                output_transform=lambda x: (x["pred"], x["label"]),
+                output_transform=from_engine(["pred", "label"]),
             )
         },
         additional_metrics={
             "test_hausdorff": HausdorffDistance(
                 include_background=False,
-                output_transform=lambda x: (x["pred"], x["label"])
+                output_transform=from_engine(["pred", "label"]),
             )
         },
         amp=cfg.amp,
