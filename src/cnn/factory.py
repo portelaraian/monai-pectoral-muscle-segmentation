@@ -7,6 +7,7 @@ from ignite.contrib.handlers import param_scheduler
 from ignite.contrib.handlers import ProgressBar
 
 import monai
+from monai.apps import load_from_mmar
 from monai.transforms import (
     CastToTyped,
     ToTensord
@@ -101,6 +102,10 @@ def get_model(cfg):
     """
     if cfg.model.name == "DynUNet":
         raise ValueError(f"Not supporting {cfg.model.name} anymore.")
+
+    if cfg.model.pretrained:
+        log(f"Loading pretrained model from NVIDIA Clara")
+        return load_from_mmar(**cfg.model.mmar)
 
     try:
         return getattr(monai.networks.nets, cfg.model.name)(**cfg.model.params)
