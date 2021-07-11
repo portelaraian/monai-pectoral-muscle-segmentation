@@ -274,7 +274,7 @@ def ensemble_evaluate(cfg, post_transforms, loader, models, pred_keys):
         pred_keys=pred_keys,
         networks=models,
         inferer=factory.get_inferer(cfg),
-        post_transform=post_transforms,
+        postprocessing=post_transforms,
         key_val_metric={
             "test_mean_dice": MeanDice(
                 include_background=False,
@@ -303,15 +303,15 @@ def ensemble_evaluate(cfg, post_transforms, loader, models, pred_keys):
         output_postfix=cfg.model_id,
         name="evaluator",
         mode="nearest",
-        batch_transform=lambda batch: batch["image_meta_dict"],
-        output_transform=lambda output: output["pred"],
+        batch_transform=from_engine("image_meta_dict"),
+        output_transform=from_engine("pred"),
     ).attach(evaluator)
 
     MetricsSaver(
         save_dir=cfg.prediction_folder,
         delimiter=",",
         metric_details="*",
-        batch_transform=lambda batch: batch["image_meta_dict"],
+        batch_transform=from_engine("image_meta_dict"),
     ).attach(evaluator)
 
     evaluator.run()
