@@ -300,7 +300,7 @@ def ensemble_evaluate(cfg, post_transforms, loader, models, pred_keys):
     SegmentationSaver(
         output_dir=cfg.prediction_folder,
         output_ext=".nii",
-        output_postfix=cfg.model_id,
+        output_postfix="",
         name="evaluator",
         mode="nearest",
         batch_transform=from_engine("image_meta_dict"),
